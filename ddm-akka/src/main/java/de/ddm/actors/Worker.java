@@ -11,7 +11,7 @@ import de.ddm.actors.patterns.Reaper;
 import de.ddm.actors.profiling.DependencyWorker;
 import de.ddm.serialization.AkkaSerializable;
 import de.ddm.singletons.SystemConfigurationSingleton;
-import lombok.NoArgsConstructor;
+//import lombok.NoArgsConstructor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,10 +25,14 @@ public class Worker extends AbstractBehavior<Worker.Message> {
 	public interface Message extends AkkaSerializable {
 	}
 
-	@NoArgsConstructor
+//	@NoArgsConstructor
 	public static class ShutdownMessage implements Message {
 		private static final long serialVersionUID = 7516129288777469221L;
+
+		public ShutdownMessage() {
+		}
 	}
+
 
 	////////////////////////
 	// Actor Construction //
@@ -51,7 +55,7 @@ public class Worker extends AbstractBehavior<Worker.Message> {
 			this.workers.add(context.spawn(
 					DependencyWorker.create(),
 					DependencyWorker.DEFAULT_NAME + "_" + id,
-					DispatcherSelector.fromConfig("akka.worker-pool-dispatcher")));
+					DispatcherSelector.fromConfig("akka.actor.worker-pool-dispatcher")));
 	}
 
 	/////////////////

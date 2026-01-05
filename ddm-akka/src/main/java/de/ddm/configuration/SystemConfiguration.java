@@ -2,12 +2,12 @@ package de.ddm.configuration;
 
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
-import lombok.Data;
+//import lombok.Data;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 
-@Data
+//@Data
 public class SystemConfiguration {
 
 	public static final String MASTER_ROLE = "master";
@@ -78,4 +78,46 @@ public class SystemConfiguration {
 				"akka.cluster.roles = [" + this.role + "]")
 				.withFallback(ConfigFactory.load("application"));
 	}
+
+
+	public String getActorSystemName() {
+		return actorSystemName;
+	}
+
+	public String getRole() {
+		return role;
+	}
+
+	public String getHost() {
+		return host;
+	}
+
+	public int getPort() {
+		return port;
+	}
+
+	public String getMasterHost() {
+		return masterHost;
+	}
+
+	public int getMasterPort() {
+		return masterPort;
+	}
+
+	public int getNumWorkers() {
+		return numWorkers;
+	}
+
+	public boolean isStartPaused() {
+		return startPaused;
+	}
+
+	public boolean isEnterShutdown() {
+		return enterShutdown;
+	}
+
+	public boolean isHardMode() {
+		return hardMode;
+	}
+
 }

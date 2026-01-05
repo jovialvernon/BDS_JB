@@ -10,7 +10,7 @@ import akka.actor.typed.javadsl.Receive;
 import de.ddm.actors.patterns.Reaper;
 import de.ddm.actors.profiling.DependencyMiner;
 import de.ddm.serialization.AkkaSerializable;
-import lombok.NoArgsConstructor;
+//import lombok.NoArgsConstructor;
 
 public class Master extends AbstractBehavior<Master.Message> {
 
@@ -21,15 +21,23 @@ public class Master extends AbstractBehavior<Master.Message> {
 	public interface Message extends AkkaSerializable {
 	}
 
-	@NoArgsConstructor
+//	@NoArgsConstructor
 	public static class StartMessage implements Message {
 		private static final long serialVersionUID = -1963913294517850454L;
+
+		public StartMessage() {
+		}
 	}
 
-	@NoArgsConstructor
+
+//	@NoArgsConstructor
 	public static class ShutdownMessage implements Message {
 		private static final long serialVersionUID = 7516129288777469221L;
+
+		public ShutdownMessage() {
+		}
 	}
+
 
 	////////////////////////
 	// Actor Construction //
@@ -48,7 +56,7 @@ public class Master extends AbstractBehavior<Master.Message> {
 		this.dependencyMiner = context.spawn(
 				DependencyMiner.create(),
 				DependencyMiner.DEFAULT_NAME,
-				DispatcherSelector.fromConfig("akka.master-pinned-dispatcher"));
+				DispatcherSelector.fromConfig("akka.actor.master-pinned-dispatcher"));
 	}
 
 	/////////////////

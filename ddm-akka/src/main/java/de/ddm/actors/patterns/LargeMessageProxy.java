@@ -10,10 +10,10 @@ import akka.serialization.Serialization;
 import akka.serialization.SerializationExtension;
 import akka.serialization.Serializers;
 import de.ddm.serialization.AkkaSerializable;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+//import lombok.AllArgsConstructor;
+//import lombok.Data;
+//import lombok.Getter;
+//import lombok.NoArgsConstructor;
 
 import java.util.*;
 
@@ -29,54 +29,156 @@ public class LargeMessageProxy extends AbstractBehavior<LargeMessageProxy.Messag
 	public interface Message extends AkkaSerializable {
 	}
 
-	@Getter
-	@NoArgsConstructor
-	@AllArgsConstructor
+//	@Getter
+//	@NoArgsConstructor
+//	@AllArgsConstructor
 	public static class SendMessage implements Message {
 		private static final long serialVersionUID = -1203695340601241430L;
-		private LargeMessage message;
-		private ActorRef<Message> receiverProxy;
+
+		private final LargeMessage message;
+		private final ActorRef<Message> receiverProxy;
+
+		public SendMessage(LargeMessage message, ActorRef<Message> receiverProxy) {
+			this.message = message;
+			this.receiverProxy = receiverProxy;
+		}
+
+		public LargeMessage getMessage() {
+			return message;
+		}
+
+		public ActorRef<Message> getReceiverProxy() {
+			return receiverProxy;
+		}
 	}
 
-	@Getter
-	@NoArgsConstructor
-	@AllArgsConstructor
+
+//	@Getter
+//	@NoArgsConstructor
+//	@AllArgsConstructor
 	public static class ConnectMessage implements Message {
 		private static final long serialVersionUID = -2368932735326858722L;
-		private int senderTransmissionKey;
-		private ActorRef<Message> senderProxy;
-		private int largeMessageSize;
-		private int serializerId;
-		private String manifest;
+
+		private final int senderTransmissionKey;
+		private final ActorRef<Message> senderProxy;
+		private final int largeMessageSize;
+		private final int serializerId;
+		private final String manifest;
+
+		public ConnectMessage(
+				int senderTransmissionKey,
+				ActorRef<Message> senderProxy,
+				int largeMessageSize,
+				int serializerId,
+				String manifest
+		) {
+			this.senderTransmissionKey = senderTransmissionKey;
+			this.senderProxy = senderProxy;
+			this.largeMessageSize = largeMessageSize;
+			this.serializerId = serializerId;
+			this.manifest = manifest;
+		}
+
+		public int getSenderTransmissionKey() {
+			return senderTransmissionKey;
+		}
+
+		public ActorRef<Message> getSenderProxy() {
+			return senderProxy;
+		}
+
+		public int getLargeMessageSize() {
+			return largeMessageSize;
+		}
+
+		public int getSerializerId() {
+			return serializerId;
+		}
+
+		public String getManifest() {
+			return manifest;
+		}
 	}
 
-	@Getter
-	@NoArgsConstructor
-	@AllArgsConstructor
+
+	//	@Getter
+//	@NoArgsConstructor
+//	@AllArgsConstructor
 	public static class ConnectAckMessage implements Message {
 		private static final long serialVersionUID = 6497424731575554980L;
-		private int senderTransmissionKey;
-		private int receiverTransmissionKey;
+
+		private final int senderTransmissionKey;
+		private final int receiverTransmissionKey;
+
+		public ConnectAckMessage(int senderTransmissionKey, int receiverTransmissionKey) {
+			this.senderTransmissionKey = senderTransmissionKey;
+			this.receiverTransmissionKey = receiverTransmissionKey;
+		}
+
+		public int getSenderTransmissionKey() {
+			return senderTransmissionKey;
+		}
+
+		public int getReceiverTransmissionKey() {
+			return receiverTransmissionKey;
+		}
 	}
 
-	@Getter
-	@NoArgsConstructor
-	@AllArgsConstructor
+
+
+	//	@Getter
+//	@NoArgsConstructor
+//	@AllArgsConstructor
 	public static class BytesMessage implements Message {
 		private static final long serialVersionUID = -8435193720156121630L;
-		private byte[] bytes;
-		private int senderTransmissionKey;
-		private int receiverTransmissionKey;
+
+		private final byte[] bytes;
+		private final int senderTransmissionKey;
+		private final int receiverTransmissionKey;
+
+		public BytesMessage(byte[] bytes, int senderTransmissionKey, int receiverTransmissionKey) {
+			this.bytes = bytes;
+			this.senderTransmissionKey = senderTransmissionKey;
+			this.receiverTransmissionKey = receiverTransmissionKey;
+		}
+
+		public byte[] getBytes() {
+			return bytes;
+		}
+
+		public int getSenderTransmissionKey() {
+			return senderTransmissionKey;
+		}
+
+		public int getReceiverTransmissionKey() {
+			return receiverTransmissionKey;
+		}
 	}
 
-	@Getter
-	@NoArgsConstructor
-	@AllArgsConstructor
+
+//	@Getter
+//	@NoArgsConstructor
+//	@AllArgsConstructor
 	public static class BytesAckMessage implements Message {
 		private static final long serialVersionUID = 5992096322167014051L;
-		private int senderTransmissionKey;
-		private int receiverTransmissionKey;
+
+		private final int senderTransmissionKey;
+		private final int receiverTransmissionKey;
+
+		public BytesAckMessage(int senderTransmissionKey, int receiverTransmissionKey) {
+			this.senderTransmissionKey = senderTransmissionKey;
+			this.receiverTransmissionKey = receiverTransmissionKey;
+		}
+
+		public int getSenderTransmissionKey() {
+			return senderTransmissionKey;
+		}
+
+		public int getReceiverTransmissionKey() {
+			return receiverTransmissionKey;
+		}
 	}
+
 
 	////////////////////////
 	// Actor Construction //
@@ -116,23 +218,86 @@ public class LargeMessageProxy extends AbstractBehavior<LargeMessageProxy.Messag
 
 	private final Serialization serialization = SerializationExtension.get(this.getContext().getSystem());
 
-	@Data
-	@AllArgsConstructor
+//	@Data
+//	@AllArgsConstructor
 	private static class SendState {
-		private byte[] bytes;
+		private final byte[] bytes;
 		private int offset;
-		private ActorRef<Message> receiverProxy;
+		private final ActorRef<Message> receiverProxy;
+
+		public SendState(byte[] bytes, int offset, ActorRef<Message> receiverProxy) {
+			this.bytes = bytes;
+			this.offset = offset;
+			this.receiverProxy = receiverProxy;
+		}
+
+		public byte[] getBytes() {
+			return bytes;
+		}
+
+		public int getOffset() {
+			return offset;
+		}
+
+		public void setOffset(int offset) {
+			this.offset = offset;
+		}
+
+		public ActorRef<Message> getReceiverProxy() {
+			return receiverProxy;
+		}
 	}
 
-	@Data
-	@AllArgsConstructor
+
+//	@Data
+//	@AllArgsConstructor
 	private static class ReceiveState {
-		private byte[] bytes;
+
+		private final byte[] bytes;
 		private int offset;
-		private ActorRef<Message> senderProxy;
-		private int serializerId;
-		private String manifest;
+		private final ActorRef<Message> senderProxy;
+		private final int serializerId;
+		private final String manifest;
+
+		public ReceiveState(
+				byte[] bytes,
+				int offset,
+				ActorRef<Message> senderProxy,
+				int serializerId,
+				String manifest
+		) {
+			this.bytes = bytes;
+			this.offset = offset;
+			this.senderProxy = senderProxy;
+			this.serializerId = serializerId;
+			this.manifest = manifest;
+		}
+
+		public byte[] getBytes() {
+			return bytes;
+		}
+
+		public int getOffset() {
+			return offset;
+		}
+
+		public void setOffset(int offset) {
+			this.offset = offset;
+		}
+
+		public ActorRef<Message> getSenderProxy() {
+			return senderProxy;
+		}
+
+		public int getSerializerId() {
+			return serializerId;
+		}
+
+		public String getManifest() {
+			return manifest;
+		}
 	}
+
 
 	////////////////////
 	// Actor Behavior //

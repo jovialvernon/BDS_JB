@@ -10,9 +10,9 @@ import de.ddm.configuration.SystemConfiguration;
 import de.ddm.serialization.AkkaSerializable;
 import de.ddm.singletons.ReaperSingleton;
 import de.ddm.singletons.SystemConfigurationSingleton;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+//import lombok.AllArgsConstructor;
+//import lombok.Getter;
+//import lombok.NoArgsConstructor;
 
 import java.time.Duration;
 import java.util.HashSet;
@@ -27,26 +27,46 @@ public class Guardian extends AbstractBehavior<Guardian.Message> {
 	public interface Message extends AkkaSerializable {
 	}
 
-	@NoArgsConstructor
+//	@NoArgsConstructor
 	public static class StartMessage implements Message {
 		private static final long serialVersionUID = -6896669928271349802L;
 	}
 
-	@Getter
-	@NoArgsConstructor
-	@AllArgsConstructor
+//	@Getter
+//	@NoArgsConstructor
+//	@AllArgsConstructor
 	public static class ShutdownMessage implements Message {
 		private static final long serialVersionUID = 7516129288777469221L;
-		private ActorRef<Message> initiator;
+
+		private final ActorRef<Message> initiator;
+
+		public ShutdownMessage(ActorRef<Message> initiator) {
+			this.initiator = initiator;
+		}
+
+		public ActorRef<Message> getInitiator() {
+			return initiator;
+		}
 	}
 
-	@Getter
-	@NoArgsConstructor
-	@AllArgsConstructor
+
+
+//	@Getter
+//	@NoArgsConstructor
+//	@AllArgsConstructor
 	public static class ReceptionistListingMessage implements Message {
-		private static final long serialVersionUID = 2336368568740749020L;
-		Receptionist.Listing listing;
+		private final Receptionist.Listing listing;
+
+		public ReceptionistListingMessage(Receptionist.Listing listing) {
+			this.listing = listing;
+		}
+
+		public Receptionist.Listing getListing() {
+			return listing;
+		}
 	}
+
+
 
 	////////////////////////
 	// Actor Construction //

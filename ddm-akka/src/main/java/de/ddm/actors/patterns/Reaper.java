@@ -9,9 +9,9 @@ import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
 import de.ddm.serialization.AkkaSerializable;
 import de.ddm.singletons.ReaperSingleton;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+//import lombok.AllArgsConstructor;
+//import lombok.Getter;
+//import lombok.NoArgsConstructor;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -29,13 +29,26 @@ public class Reaper extends AbstractBehavior<Reaper.Message> {
 	public interface Message extends AkkaSerializable {
 	}
 
-	@Getter
-	@NoArgsConstructor
-	@AllArgsConstructor
+//	@Getter
+//	@NoArgsConstructor
+//	@AllArgsConstructor
 	public static class WatchMeMessage implements Message {
 		private static final long serialVersionUID = 2674402496050807748L;
-		private ActorRef<Void> actor;
+
+		private final ActorRef<Void> actor;
+
+		public WatchMeMessage(ActorRef<Void> actor) {
+			this.actor = actor;
+		}
+
+		public ActorRef<Void> getActor() {
+			return actor;
+		}
 	}
+
+
+
+
 
 	////////////////////////
 	// Actor Construction //
@@ -57,7 +70,8 @@ public class Reaper extends AbstractBehavior<Reaper.Message> {
 	// Actor State //
 	/////////////////
 
-	private final Set<ActorRef<Void>> watchees = new HashSet<>();
+	private final Set<ActorRef<?>> watchees = new HashSet<>();
+
 
 	////////////////////
 	// Actor Behavior //

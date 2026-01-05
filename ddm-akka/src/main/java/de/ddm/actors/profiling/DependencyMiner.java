@@ -14,136 +14,336 @@ import de.ddm.serialization.AkkaSerializable;
 import de.ddm.singletons.InputConfigurationSingleton;
 import de.ddm.singletons.SystemConfigurationSingleton;
 import de.ddm.structures.InclusionDependency;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+//import lombok.AllArgsConstructor;
+//import lombok.Getter;
+//import lombok.NoArgsConstructor;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-public class DependencyMiner extends AbstractBehavior<DependencyMiner.Message> {
+	public class DependencyMiner extends AbstractBehavior<de.ddm.actors.profiling.DependencyMiner.Message> {
 
-	////////////////////
-	// Actor Messages //
-	////////////////////
+		////////////////////
+		// Actor Messages //
+		////////////////////
 
-	public interface Message extends AkkaSerializable, LargeMessageProxy.LargeMessage {
-	}
+		public interface Message extends AkkaSerializable, LargeMessageProxy.LargeMessage {
+		}
 
-	@NoArgsConstructor
-	public static class StartMessage implements Message {
-		private static final long serialVersionUID = -1963913294517850454L;
-	}
+//		@NoArgsConstructor
+		public static class StartMessage implements de.ddm.actors.profiling.DependencyMiner.Message {
+			private static final long serialVersionUID = -1963913294517850454L;
+		}
 
-	@Getter
-	@NoArgsConstructor
-	@AllArgsConstructor
-	public static class HeaderMessage implements Message {
-		private static final long serialVersionUID = -5322425954432915838L;
-		int id;
-		String[] header;
-	}
+//		@Getter
+//		@NoArgsConstructor
+//		@AllArgsConstructor
+		public static class HeaderMessage implements de.ddm.actors.profiling.DependencyMiner.Message {
+			private static final long serialVersionUID = -5322425954432915838L;
+			int id;
+			String[] header;
 
-	@Getter
-	@NoArgsConstructor
-	@AllArgsConstructor
-	public static class BatchMessage implements Message {
-		private static final long serialVersionUID = 4591192372652568030L;
-		int id;
-		List<String[]> batch;
-	}
+			public HeaderMessage(int id, String[] header) {
+				this.id = id;
+				this.header = header;
+			}
 
-	@Getter
-	@NoArgsConstructor
-	@AllArgsConstructor
-	public static class RegistrationMessage implements Message {
-		private static final long serialVersionUID = -4025238529984914107L;
-		ActorRef<DependencyWorker.Message> dependencyWorker;
-	}
+			public int getId() {
+				return id;
+			}
 
-	@Getter
-	@NoArgsConstructor
-	@AllArgsConstructor
-	public static class CompletionMessage implements Message {
-		private static final long serialVersionUID = -7642425159675583598L;
-		ActorRef<DependencyWorker.Message> dependencyWorker;
-		int result;
-	}
+			public String[] getHeader() {
+				return header;
+			}
+		}
 
-	////////////////////////
-	// Actor Construction //
-	////////////////////////
+//		@Getter
+//		@NoArgsConstructor
+//		@AllArgsConstructor
+		public static class BatchMessage implements de.ddm.actors.profiling.DependencyMiner.Message {
+			private static final long serialVersionUID = 4591192372652568030L;
+			int id;
+			List<String[]> batch;
 
-	public static final String DEFAULT_NAME = "dependencyMiner";
+			public BatchMessage(int id, List<String[]> batch) {
+				this.id = id;
+				this.batch = batch;
+			}
 
-	public static final ServiceKey<DependencyMiner.Message> dependencyMinerService = ServiceKey.create(DependencyMiner.Message.class, DEFAULT_NAME + "Service");
+			public int getId() {
+				return id;
+			}
 
-	public static Behavior<Message> create() {
-		return Behaviors.setup(DependencyMiner::new);
-	}
+			public List<String[]> getBatch() {
+				return batch;
+			}
+		}
 
-	private DependencyMiner(ActorContext<Message> context) {
-		super(context);
-		this.discoverNaryDependencies = SystemConfigurationSingleton.get().isHardMode();
-		this.inputFiles = InputConfigurationSingleton.get().getInputFiles();
-		this.headerLines = new String[this.inputFiles.length][];
+//		@Getter
+		public static class RegistrationMessage implements Message {
+			private static final long serialVersionUID = -4025238529984914107L;
 
-		this.inputReaders = new ArrayList<>(inputFiles.length);
-		for (int id = 0; id < this.inputFiles.length; id++)
-			this.inputReaders.add(context.spawn(InputReader.create(id, this.inputFiles[id]), InputReader.DEFAULT_NAME + "_" + id));
-		this.resultCollector = context.spawn(ResultCollector.create(), ResultCollector.DEFAULT_NAME);
-		this.largeMessageProxy = this.getContext().spawn(LargeMessageProxy.create(this.getContext().getSelf().unsafeUpcast(), false), LargeMessageProxy.DEFAULT_NAME);
+			private final ActorRef<DependencyWorker.Message> dependencyWorker;
 
-		this.dependencyWorkers = new ArrayList<>();
+			public RegistrationMessage(ActorRef<DependencyWorker.Message> dependencyWorker) {
+				this.dependencyWorker = dependencyWorker;
 
-		context.getSystem().receptionist().tell(Receptionist.register(dependencyMinerService, context.getSelf()));
-	}
 
-	/////////////////
-	// Actor State //
-	/////////////////
+			}
+			public ActorRef<DependencyWorker.Message> getDependencyWorker() {
+				return dependencyWorker;
+			}
+		}
 
-	private long startTime;
 
-	private final boolean discoverNaryDependencies;
-	private final File[] inputFiles;
-	private final String[][] headerLines;
 
-	private final List<ActorRef<InputReader.Message>> inputReaders;
-	private final ActorRef<ResultCollector.Message> resultCollector;
-	private final ActorRef<LargeMessageProxy.Message> largeMessageProxy;
 
-	private final List<ActorRef<DependencyWorker.Message>> dependencyWorkers;
+//		@Getter
+		public static class RequestWorkMessage implements Message {
+			private static final long serialVersionUID = 1L;
 
-	////////////////////
-	// Actor Behavior //
-	////////////////////
+			private final ActorRef<DependencyWorker.Message> worker;
 
-	@Override
-	public Receive<Message> createReceive() {
-		return newReceiveBuilder()
-				.onMessage(StartMessage.class, this::handle)
-				.onMessage(BatchMessage.class, this::handle)
-				.onMessage(HeaderMessage.class, this::handle)
-				.onMessage(RegistrationMessage.class, this::handle)
-				.onMessage(CompletionMessage.class, this::handle)
-				.onSignal(Terminated.class, this::handle)
-				.build();
-	}
+			public RequestWorkMessage(ActorRef<DependencyWorker.Message> worker) {
+				this.worker = worker;
+			}
+
+			public ActorRef<DependencyWorker.Message> getWorker() {
+				return worker;
+			}
+
+		}
+
+
+
+//	@Getter
+//	@NoArgsConstructor
+//	@AllArgsConstructor
+//	public static class CompletionMessage implements Message {
+//		private static final long serialVersionUID = -7642425159675583598L;
+//		ActorRef<DependencyWorker.Message> dependencyWorker;
+//		int result;
+//	}
+
+//		@Getter
+//		@NoArgsConstructor
+//		@AllArgsConstructor
+//		public static class UnaryIndResult implements de.ddm.actors.profiling.DependencyMiner.Message {
+//			private static final long serialVersionUID = 1L;
+//
+//			int dependentFileId;
+//			int dependentColumnIndex;
+//
+//			int referencedFileId;
+//			int referencedColumnIndex;
+//
+//			boolean violated;
+//		}
+
+		public static class UnaryIndResult implements Message {
+			private static final long serialVersionUID = 1L;
+
+			private final int dependentFileId;
+			private final int dependentColumnIndex;
+			private final int referencedFileId;
+			private final int referencedColumnIndex;
+			private final boolean violated;
+
+			public UnaryIndResult(
+					int dependentFileId,
+					int dependentColumnIndex,
+					int referencedFileId,
+					int referencedColumnIndex,
+					boolean violated
+			) {
+				this.dependentFileId = dependentFileId;
+				this.dependentColumnIndex = dependentColumnIndex;
+				this.referencedFileId = referencedFileId;
+				this.referencedColumnIndex = referencedColumnIndex;
+				this.violated = violated;
+			}
+
+			public int getDependentFileId() {
+				return dependentFileId;
+			}
+
+			public int getDependentColumnIndex() {
+				return dependentColumnIndex;
+			}
+
+			public int getReferencedFileId() {
+				return referencedFileId;
+			}
+
+			public int getReferencedColumnIndex() {
+				return referencedColumnIndex;
+			}
+
+			public boolean isViolated() {
+				return violated;
+			}
+		}
+		////////////////////////
+		// Actor Construction //
+		////////////////////////
+
+		public static final String DEFAULT_NAME = "dependencyMiner";
+
+		public static final ServiceKey<de.ddm.actors.profiling.DependencyMiner.Message> dependencyMinerService = ServiceKey.create(de.ddm.actors.profiling.DependencyMiner.Message.class, DEFAULT_NAME + "Service");
+
+		public static Behavior<de.ddm.actors.profiling.DependencyMiner.Message> create() {
+			return Behaviors.setup(de.ddm.actors.profiling.DependencyMiner::new);
+		}
+
+		private DependencyMiner(ActorContext<de.ddm.actors.profiling.DependencyMiner.Message> context) {
+			super(context);
+			this.discoverNaryDependencies = SystemConfigurationSingleton.get().isHardMode();
+			this.inputFiles = InputConfigurationSingleton.get().getInputFiles();
+			this.headerLines = new String[this.inputFiles.length][];
+
+			this.inputReaders = new ArrayList<>(inputFiles.length);
+			for (int id = 0; id < this.inputFiles.length; id++)
+				this.inputReaders.add(context.spawn(InputReader.create(id, this.inputFiles[id]), InputReader.DEFAULT_NAME + "_" + id));
+			this.resultCollector = context.spawn(ResultCollector.create(), ResultCollector.DEFAULT_NAME);
+			this.largeMessageProxy = this.getContext().spawn(LargeMessageProxy.create(this.getContext().getSelf().unsafeUpcast(), false), LargeMessageProxy.DEFAULT_NAME);
+
+			this.dependencyWorkers = new ArrayList<>();
+
+			context.getSystem().receptionist().tell(Receptionist.register(dependencyMinerService, context.getSelf()));
+		}
+
+		/////////////////
+		// Actor State //
+		/////////////////
+
+		private long startTime;
+
+		private final boolean discoverNaryDependencies;
+		private final File[] inputFiles;
+		private final String[][] headerLines;
+
+		private final List<ActorRef<InputReader.Message>> inputReaders;
+		private final ActorRef<ResultCollector.Message> resultCollector;
+		private final ActorRef<LargeMessageProxy.Message> largeMessageProxy;
+
+		private final List<ActorRef<DependencyWorker.Message>> dependencyWorkers;
+		private boolean workersRegistered = false;
+
+		private int nextDependentFile = 0;
+		private int nextDependentColumn = 0;
+		private int nextReferencedFile = 0;
+		private int nextReferencedColumn = 0;
+
+		// Total number of unary IND checks
+		private int totalTasks;
+
+		// How many tasks have been sent
+		private int tasksIssued = 0;
+
+		// How many results have been received
+		private int resultsReceived = 0;
+
+		// Flag to stop sending new work
+		private boolean noMoreTasks = false;
+
+		private boolean started = false;
+
+
+		////////////////////
+		// Actor Behavior //
+		////////////////////
+
+		@Override
+		public Receive<de.ddm.actors.profiling.DependencyMiner.Message> createReceive() {
+			return newReceiveBuilder()
+					.onMessage(de.ddm.actors.profiling.DependencyMiner.StartMessage.class, this::handle)
+					.onMessage(de.ddm.actors.profiling.DependencyMiner.BatchMessage.class, this::handle)
+					.onMessage(de.ddm.actors.profiling.DependencyMiner.HeaderMessage.class, this::handle)
+					.onMessage(de.ddm.actors.profiling.DependencyMiner.RegistrationMessage.class, this::handle)
+					.onMessage(de.ddm.actors.profiling.DependencyMiner.RequestWorkMessage.class, this::handle)
+//				.onMessage(CompletionMessage.class, this::handle)
+					.onMessage(de.ddm.actors.profiling.DependencyMiner.UnaryIndResult.class, this::handle)
+
+
+					.onSignal(Terminated.class, this::handle)
+					.build();
+		}
+
+		private void advanceIndices() {
+
+			nextReferencedColumn++;
+
+			if (nextReferencedColumn >= headerLines[nextReferencedFile].length) {
+				nextReferencedColumn = 0;
+				nextReferencedFile++;
+			}
+
+			if (nextReferencedFile >= inputFiles.length) {
+				nextReferencedFile = 0;
+				nextDependentColumn++;
+			}
+
+			if (nextDependentColumn >= headerLines[nextDependentFile].length) {
+				nextDependentColumn = 0;
+				nextDependentFile++;
+			}
+		}
 
 	private Behavior<Message> handle(StartMessage message) {
 		for (ActorRef<InputReader.Message> inputReader : this.inputReaders)
 			inputReader.tell(new InputReader.ReadHeaderMessage(this.getContext().getSelf()));
-		for (ActorRef<InputReader.Message> inputReader : this.inputReaders)
-			inputReader.tell(new InputReader.ReadBatchMessage(this.getContext().getSelf(), 10000));
+
+		// ALWAYS start reading data on StartMessage
+		for (ActorRef<InputReader.Message> inputReader : this.inputReaders) {
+			inputReader.tell(
+					new InputReader.ReadBatchMessage(this.getContext().getSelf(), 10000)
+			);
+		}
+
+		getContext().getLog().info("Started reading input data");
+
+
+		this.started = true;
 		this.startTime = System.currentTimeMillis();
 		return this;
 	}
 
 	private Behavior<Message> handle(HeaderMessage message) {
 		this.headerLines[message.getId()] = message.getHeader();
+
+		boolean allHeadersLoaded = true;
+		for (String[] h : headerLines) {
+			if (h == null) {
+				allHeadersLoaded = false;
+				break;
+			}
+		}
+
+		if (allHeadersLoaded && totalTasks == 0) {
+			for (int df = 0; df < inputFiles.length; df++) {
+				for (int dc = 0; dc < headerLines[df].length; dc++) {
+					for (int rf = 0; rf < inputFiles.length; rf++) {
+						for (int rc = 0; rc < headerLines[rf].length; rc++) {
+							if (!(df == rf && dc == rc)) {
+								totalTasks++;
+							}
+						}
+					}
+				}
+			}
+
+			getContext().getLog().info("Total unary IND tasks: {}", totalTasks);
+
+
+		}
+//		for (ActorRef<DependencyWorker.Message> worker : dependencyWorkers) {
+//			worker.tell(new DependencyMiner.RequestWorkMessage(worker));
+//		}
+
+
+
 		return this;
 	}
 
@@ -166,39 +366,53 @@ public class DependencyMiner extends AbstractBehavior<DependencyMiner.Message> {
 			// The worker should get some work ... let me send her something before I figure out what I actually want from her.
 			// I probably need to idle the worker for a while, if I do not have work for it right now ... (see master/worker pattern)
 
-			dependencyWorker.tell(new DependencyWorker.TaskMessage(this.largeMessageProxy, 42));
+//			dependencyWorker.tell(new DependencyWorker.TaskMessage(this.largeMessageProxy, 42));
+			if (!workersRegistered) {
+				workersRegistered = true;
+			}
+
+			// If StartMessage already happened, start reading now
+//			if (started) {
+//				for (ActorRef<InputReader.Message> inputReader : inputReaders) {
+//					inputReader.tell(
+//							new InputReader.ReadBatchMessage(getContext().getSelf(), 10000)
+//					);
+//				}
+//			}
+
+
 		}
 		return this;
 	}
 
-	private Behavior<Message> handle(CompletionMessage message) {
-		ActorRef<DependencyWorker.Message> dependencyWorker = message.getDependencyWorker();
-		// If this was a reasonable result, I would probably do something with it and potentially generate more work ... for now, let's just generate a random, binary IND.
-
-		if (this.headerLines[0] != null) {
-			Random random = new Random();
-			int dependent = random.nextInt(this.inputFiles.length);
-			int referenced = random.nextInt(this.inputFiles.length);
-			File dependentFile = this.inputFiles[dependent];
-			File referencedFile = this.inputFiles[referenced];
-			String[] dependentAttributes = {this.headerLines[dependent][random.nextInt(this.headerLines[dependent].length)], this.headerLines[dependent][random.nextInt(this.headerLines[dependent].length)]};
-			String[] referencedAttributes = {this.headerLines[referenced][random.nextInt(this.headerLines[referenced].length)], this.headerLines[referenced][random.nextInt(this.headerLines[referenced].length)]};
-			InclusionDependency ind = new InclusionDependency(dependentFile, dependentAttributes, referencedFile, referencedAttributes);
-			List<InclusionDependency> inds = new ArrayList<>(1);
-			inds.add(ind);
-
-			this.resultCollector.tell(new ResultCollector.ResultMessage(inds));
-		}
-		// I still don't know what task the worker could help me to solve ... but let me keep her busy.
-		// Once I found all unary INDs, I could check if this.discoverNaryDependencies is set to true and try to detect n-ary INDs as well!
-
-		dependencyWorker.tell(new DependencyWorker.TaskMessage(this.largeMessageProxy, 42));
-
-		// At some point, I am done with the discovery. That is when I should call my end method. Because I do not work on a completable task yet, I simply call it after some time.
-		if (System.currentTimeMillis() - this.startTime > 120000)
-			this.end();
-		return this;
-	}
+//	private Behavior<Message> handle(CompletionMessage message) {
+//		ActorRef<DependencyWorker.Message> dependencyWorker = message.getDependencyWorker();
+//		// If this was a reasonable result, I would probably do something with it and potentially generate more work ... for now, let's just generate a random, binary IND.
+//
+//		if (this.headerLines[0] != null) {
+//			Random random = new Random();
+//			int dependent = random.nextInt(this.inputFiles.length);
+//			int referenced = random.nextInt(this.inputFiles.length);
+//			File dependentFile = this.inputFiles[dependent];
+//			File referencedFile = this.inputFiles[referenced];
+//			String[] dependentAttributes = {this.headerLines[dependent][random.nextInt(this.headerLines[dependent].length)], this.headerLines[dependent][random.nextInt(this.headerLines[dependent].length)]};
+//			String[] referencedAttributes = {this.headerLines[referenced][random.nextInt(this.headerLines[referenced].length)], this.headerLines[referenced][random.nextInt(this.headerLines[referenced].length)]};
+//			InclusionDependency ind = new InclusionDependency(dependentFile, dependentAttributes, referencedFile, referencedAttributes);
+//			List<InclusionDependency> inds = new ArrayList<>(1);
+//			inds.add(ind);
+//
+//			this.resultCollector.tell(new ResultCollector.ResultMessage(inds));
+//		}
+//		// I still don't know what task the worker could help me to solve ... but let me keep her busy.
+//		// Once I found all unary INDs, I could check if this.discoverNaryDependencies is set to true and try to detect n-ary INDs as well!
+//
+////		dependencyWorker.tell(new DependencyWorker.TaskMessage(this.largeMessageProxy, 42));
+//
+//		// At some point, I am done with the discovery. That is when I should call my end method. Because I do not work on a completable task yet, I simply call it after some time.
+//		if (System.currentTimeMillis() - this.startTime > 120000)
+//			this.end();
+//		return this;
+//	}
 
 	private void end() {
 		this.resultCollector.tell(new ResultCollector.FinalizeMessage());
@@ -211,4 +425,69 @@ public class DependencyMiner extends AbstractBehavior<DependencyMiner.Message> {
 		this.dependencyWorkers.remove(dependencyWorker);
 		return this;
 	}
+
+	private Behavior<Message> handle(RequestWorkMessage message) {
+
+		if (headerLines[0] == null || noMoreTasks) return this;
+
+		while (nextDependentFile == nextReferencedFile &&
+				nextDependentColumn == nextReferencedColumn) {
+			advanceIndices();
+		}
+
+		if (nextDependentFile >= inputFiles.length) {
+			noMoreTasks = true;
+			return this;
+		}
+
+		message.getWorker().tell(
+				new DependencyWorker.TaskMessage(
+						nextDependentFile,
+						nextDependentColumn,
+						nextReferencedFile,
+						nextReferencedColumn,
+						getContext().getSelf(),          // 🔑 miner ref
+						this.largeMessageProxy
+				)
+
+		);
+
+		tasksIssued++;
+		advanceIndices();
+		return this;
+	}
+
+
+
+
+		private Behavior<Message> handle(UnaryIndResult message) {
+
+		resultsReceived++;
+
+		if (!message.isViolated()) {
+			InclusionDependency ind = new InclusionDependency(
+					inputFiles[message.getDependentFileId()],
+					new String[]{headerLines[message.getDependentFileId()][message.getDependentColumnIndex()]},
+					inputFiles[message.getReferencedFileId()],
+					new String[]{headerLines[message.getReferencedFileId()][message.getReferencedColumnIndex()]}
+			);
+
+			this.resultCollector.tell(
+					new ResultCollector.ResultMessage(List.of(ind))
+			);
+		}
+
+
+		// TERMINATION CONDITION
+		if (resultsReceived == totalTasks) {
+			getContext().getLog().info(
+					"All unary INDs processed ({} tasks). Terminating.",
+					totalTasks
+			);
+			end();
+		}
+
+		return this;
+	}
+
 }
