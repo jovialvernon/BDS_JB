@@ -17,6 +17,8 @@ import de.ddm.structures.InclusionDependency;
 //import lombok.AllArgsConstructor;
 //import lombok.Getter;
 //import lombok.NoArgsConstructor;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -151,12 +153,13 @@ import java.util.Random;
 			private final int referencedColumnIndex;
 			private final boolean violated;
 
-			public UnaryIndResult(
-					int dependentFileId,
-					int dependentColumnIndex,
-					int referencedFileId,
-					int referencedColumnIndex,
-					boolean violated
+			@JsonCreator
+		public UnaryIndResult(
+					@JsonProperty("dependentFileId") int dependentFileId,
+					@JsonProperty("dependentColumnIndex") int dependentColumnIndex,
+					@JsonProperty("referencedFileId") int referencedFileId,
+					@JsonProperty("referencedColumnIndex") int referencedColumnIndex,
+					@JsonProperty("violated") boolean violated
 			) {
 				this.dependentFileId = dependentFileId;
 				this.dependentColumnIndex = dependentColumnIndex;
