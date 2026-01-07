@@ -10,9 +10,9 @@ import de.ddm.actors.Guardian;
 import de.ddm.serialization.AkkaSerializable;
 import de.ddm.singletons.OutputConfigurationSingleton;
 import de.ddm.structures.InclusionDependency;
-//import lombok.AllArgsConstructor;
-//import lombok.Getter;
-//import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -29,25 +29,17 @@ public class ResultCollector extends AbstractBehavior<ResultCollector.Message> {
 	public interface Message extends AkkaSerializable {
 	}
 
-//	@Getter
-//	@NoArgsConstructor
-//	@AllArgsConstructor
+	@NoArgsConstructor
+	@AllArgsConstructor
+	@Getter
 	public static class ResultMessage implements Message {
-		private static final long serialVersionUID = -7070569202900845736L;
 
-		private final List<InclusionDependency> inclusionDependencies;
-
-		public ResultMessage(List<InclusionDependency> inclusionDependencies) {
-			this.inclusionDependencies = inclusionDependencies;
-		}
-
-		public List<InclusionDependency> getInclusionDependencies() {
-			return inclusionDependencies;
-		}
+		private List<InclusionDependency> inclusionDependencies;
 	}
 
 
-//	@NoArgsConstructor
+
+	@NoArgsConstructor
 	public static class FinalizeMessage implements Message {
 		private static final long serialVersionUID = -6603856949941810321L;
 	}
@@ -80,6 +72,9 @@ public class ResultCollector extends AbstractBehavior<ResultCollector.Message> {
 
 	private final BufferedWriter writer;
 
+	private boolean finalized = false;
+
+
 	////////////////////
 	// Actor Behavior //
 	////////////////////
@@ -105,12 +100,16 @@ public class ResultCollector extends AbstractBehavior<ResultCollector.Message> {
 	}
 
 	private Behavior<Message> handle(FinalizeMessage message) throws IOException {
+		if (finalized) {
+			return this;
+		}
+		finalized = true;
 		this.getContext().getLog().info("Received FinalizeMessage!");
 
 		this.writer.flush();
-//		this.getContext().getSystem().unsafeUpcast().tell(new Guardian.ShutdownMessage());
-		this.getContext().getSystem().unsafeUpcast()
-				.tell(new Guardian.ShutdownMessage(null));
+		this.getContext().getSystem().unsafeUpcast().tell(new Guardian.ShutdownMessage());
+
+
 
 		return this;
 	}
