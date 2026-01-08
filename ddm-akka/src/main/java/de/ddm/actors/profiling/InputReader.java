@@ -1,5 +1,13 @@
 package de.ddm.actors.profiling;
 
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
+import com.opencsv.CSVReader;
+import com.opencsv.exceptions.CsvValidationException;
+
 import akka.actor.typed.ActorRef;
 import akka.actor.typed.Behavior;
 import akka.actor.typed.PostStop;
@@ -7,18 +15,11 @@ import akka.actor.typed.javadsl.AbstractBehavior;
 import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
-import com.opencsv.CSVReader;
-import com.opencsv.exceptions.CsvValidationException;
 import de.ddm.serialization.AkkaSerializable;
 import de.ddm.singletons.InputConfigurationSingleton;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 
 public class InputReader extends AbstractBehavior<InputReader.Message> {
 
@@ -47,6 +48,7 @@ public class InputReader extends AbstractBehavior<InputReader.Message> {
 		private ActorRef<DependencyMiner.Message> replyTo;
 		private int batchSize;
 	}
+
 
 
 
@@ -91,10 +93,6 @@ public class InputReader extends AbstractBehavior<InputReader.Message> {
 				.build();
 	}
 
-	private Behavior<Message> handle(ReadHeaderMessage message) {
-		message.getReplyTo().tell(new DependencyMiner.HeaderMessage(this.id, this.header));
-		return this;
-	}
 
 	private Behavior<Message> handle(ReadBatchMessage message) throws IOException, CsvValidationException {
 		List<String[]> batch = new ArrayList<>(message.getBatchSize());
@@ -113,4 +111,59 @@ public class InputReader extends AbstractBehavior<InputReader.Message> {
 		this.reader.close();
 		return this;
 	}
+
+	private Behavior<Message> handle(ReadHeaderMessage message) {
+		// Send header
+		message.getReplyTo().tell(new DependencyMiner.HeaderMessage(this.id, this.header));
+		
+		// Load and send all column data
+		try {
+			loadAndSendAllColumns(message.getReplyTo());
+		} catch (Exception e) {
+			getContext().getLog().error("Failed to load columns: {}", e.getMessage());
+		}
+		
+		return this;
+	}
+
+	private void loadAndSendAllColumns(ActorRef<DependencyMiner.Message> replyTo) 
+			throws IOException, CsvValidationException {
+		
+		File inputFile = InputConfigurationSingleton.get().getInputFiles()[this.id];
+		
+		// Create array of sets, one for each column
+		java.util.Set<String>[] columnSets = new java.util.HashSet[this.header.length];
+		for (int i = 0; i < this.header.length; i++) {
+			columnSets[i] = new java.util.HashSet<>();
+		}
+		
+		// Create new reader to avoid interfering with batch reading
+		CSVReader dataReader = InputConfigurationSingleton.get().createCSVReader(inputFile);
+		
+		if (InputConfigurationSingleton.get().isFileHasHeader()) {
+			dataReader.readNext(); // Skip header
+		}
+		
+		// Read all rows and populate column sets
+		String[] line;
+		while ((line = dataReader.readNext()) != null) {
+			for (int colIdx = 0; colIdx < line.length && colIdx < this.header.length; colIdx++) {
+				columnSets[colIdx].add(line[colIdx]);
+			}
+		}	
+		
+		dataReader.close();
+		
+		// Send each column to the miner
+		for (int colIdx = 0; colIdx < this.header.length; colIdx++) {
+			getContext().getLog().info("Sending column {} from file {} ({} unique values)", 
+				colIdx, this.id, columnSets[colIdx].size());	
+			
+			replyTo.tell(new DependencyMiner.ColumnDataMessage(this.id, colIdx, columnSets[colIdx]));
+		}
+	}
+
+
+
+	
 }

@@ -1,5 +1,7 @@
 package de.ddm.actors.profiling;
 
+import java.util.Set;
+
 import akka.actor.typed.ActorRef;
 import akka.actor.typed.Behavior;
 import akka.actor.typed.javadsl.AbstractBehavior;
@@ -9,21 +11,6 @@ import akka.actor.typed.javadsl.Receive;
 import akka.actor.typed.receptionist.Receptionist;
 import de.ddm.actors.patterns.LargeMessageProxy;
 import de.ddm.serialization.AkkaSerializable;
-//import lombok.AllArgsConstructor;
-//import lombok.Getter;
-//import lombok.NoArgsConstructor;
-
-
-import java.util.Set;
-
-import de.ddm.singletons.InputConfigurationSingleton;
-
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.util.HashSet;
-
-import java.io.File;
-
 
 public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message> {
 
@@ -34,9 +21,6 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 	public interface Message extends AkkaSerializable {
 	}
 
-//	@Getter
-//	@NoArgsConstructor
-//	@AllArgsConstructor
 	public static class ReceptionistListingMessage implements Message {
 		private final Receptionist.Listing listing;
 
@@ -49,11 +33,6 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		}
 	}
 
-
-
-	//	@Getter
-//	@NoArgsConstructor
-//	@AllArgsConstructor
 	public static class TaskMessage implements Message {
 		private static final long serialVersionUID = -4667745204456518160L;
 
@@ -65,13 +44,18 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		private ActorRef<DependencyMiner.Message> miner;
 		private ActorRef<LargeMessageProxy.Message> dependencyMinerLargeMessageProxy;
 
+		private java.util.Set<String> dependentValues;
+		private java.util.Set<String> referencedValues;
+
 		public TaskMessage(
 				int dependentFileId,
 				int dependentColumnIndex,
 				int referencedFileId,
 				int referencedColumnIndex,
 				ActorRef<DependencyMiner.Message> miner,
-				ActorRef<LargeMessageProxy.Message> dependencyMinerLargeMessageProxy
+				ActorRef<LargeMessageProxy.Message> dependencyMinerLargeMessageProxy,
+				java.util.Set<String> dependentValues,
+				java.util.Set<String> referencedValues
 		) {
 			this.dependentFileId = dependentFileId;
 			this.dependentColumnIndex = dependentColumnIndex;
@@ -79,6 +63,8 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 			this.referencedColumnIndex = referencedColumnIndex;
 			this.miner = miner;
 			this.dependencyMinerLargeMessageProxy = dependencyMinerLargeMessageProxy;
+			this.dependentValues = dependentValues;
+			this.referencedValues = referencedValues;
 		}
 
 		public TaskMessage() {}
@@ -106,40 +92,48 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		public ActorRef<LargeMessageProxy.Message> getDependencyMinerLargeMessageProxy() {
 			return dependencyMinerLargeMessageProxy;
 		}
-				// Setters for Jackson deserialization
-		public void setDependentFileId(int value) { 
-			this.dependentFileId = value; 
+
+		public java.util.Set<String> getDependentValues() {
+			return dependentValues;
 		}
 
-		public void setDependentColumnIndex(int value) { 
-			this.dependentColumnIndex = value; 
+		public java.util.Set<String> getReferencedValues() {
+			return referencedValues;
 		}
 
-		public void setReferencedFileId(int value) { 
-			this.referencedFileId = value; 
+		// Setters for Jackson deserialization
+		public void setDependentFileId(int value) {
+			this.dependentFileId = value;
 		}
 
-		public void setReferencedColumnIndex(int value) { 
-			this.referencedColumnIndex = value; 
+		public void setDependentColumnIndex(int value) {
+			this.dependentColumnIndex = value;
 		}
 
-		public void setMiner(ActorRef<DependencyMiner.Message> value) { 
-			this.miner = value; 
+		public void setReferencedFileId(int value) {
+			this.referencedFileId = value;
 		}
 
-		public void setDependencyMinerLargeMessageProxy(ActorRef<LargeMessageProxy.Message> value) { 
-			this.dependencyMinerLargeMessageProxy = value; 
+		public void setReferencedColumnIndex(int value) {
+			this.referencedColumnIndex = value;
+		}
+
+		public void setMiner(ActorRef<DependencyMiner.Message> value) {
+			this.miner = value;
+		}
+
+		public void setDependencyMinerLargeMessageProxy(ActorRef<LargeMessageProxy.Message> value) {
+			this.dependencyMinerLargeMessageProxy = value;
+		}
+
+		public void setDependentValues(java.util.Set<String> value) {
+			this.dependentValues = value;
+		}
+
+		public void setReferencedValues(java.util.Set<String> value) {
+			this.referencedValues = value;
 		}
 	}
-
-
-//	@NoArgsConstructor
-//	@AllArgsConstructor
-//	public static class RequestWorkMessage implements Message {
-//		private static final long serialVersionUID = 1L;
-//		ActorRef<DependencyMiner.Message> dependencyMiner;
-//	}
-
 
 	////////////////////////
 	// Actor Construction //
@@ -166,8 +160,6 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 
 	private ActorRef<LargeMessageProxy.Message> largeMessageProxy;
 
-	private final java.util.Map<String, Set<String>> columnCache = new java.util.HashMap<>();
-
 	////////////////////
 	// Actor Behavior //
 	////////////////////
@@ -185,85 +177,19 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		for (ActorRef<DependencyMiner.Message> dependencyMiner : dependencyMiners) {
 			dependencyMiner.tell(new DependencyMiner.RegistrationMessage(this.getContext().getSelf()));
 			dependencyMiner.tell(new DependencyMiner.RequestWorkMessage(this.getContext().getSelf()));
-
 		}
-
 		return this;
 	}
 
-	private Set<String> loadColumn(File file, int columnIndex) throws Exception {
-
-		Set<String> values = new HashSet<>();
-
-		try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-
-			String line;
-			boolean headerSkipped = false;
-
-			while ((line = reader.readLine()) != null) {
-
-				if (!headerSkipped) { // skip header
-					headerSkipped = true;
-					continue;
-				}
-
-				String[] parts = line.split(";");
-				if (columnIndex < parts.length) {
-					values.add(parts[columnIndex]);
-				}
-			}
-		}
-
-		return values;
-	}
-
-	private Set<String> loadColumnCached(File file, int fileId, int columnIndex) throws Exception {
-		String key = fileId + ":" + columnIndex;
-		Set<String> cached = columnCache.get(key);
-		if (cached != null) {
-			return cached;
-		}
-		Set<String> values = loadColumn(file, columnIndex);
-		columnCache.put(key, values);
-		return values;
-	}
-
-
-//	private Behavior<Message> handle(TaskMessage message) {
-////		this.getContext().getLog().info("Working!");
-////		// I should probably know how to solve this task, but for now I just pretend some work...
-////
-////		int result = message.getTask();
-////		long time = System.currentTimeMillis();
-////		Random rand = new Random();
-////		int runtime = (rand.nextInt(2) + 2) * 1000;
-////		while (System.currentTimeMillis() - time < runtime)
-////			result = ((int) Math.abs(Math.sqrt(result)) * result) % 1334525;
-////
-////		LargeMessageProxy.LargeMessage completionMessage = new DependencyMiner.CompletionMessage(this.getContext().getSelf(), result);
-////		this.largeMessageProxy.tell(new LargeMessageProxy.SendMessage(completionMessage, message.getDependencyMinerLargeMessageProxy()));
-////
-////		return this;
-//
-//
-//		this.getContext().getLog().info("Worker idle – waiting for real task.");
-//		return this;
-//	}
-
 	private Behavior<Message> handle(TaskMessage message) {
-
 		boolean violated = false;
 
 		try {
-			File dependentFile =
-					InputConfigurationSingleton.get().getInputFiles()[message.getDependentFileId()];
-			File referencedFile =
-					InputConfigurationSingleton.get().getInputFiles()[message.getReferencedFileId()];
+			// USE DATA FROM MESSAGE - NO FILE ACCESS!
+			Set<String> dependentValues = message.getDependentValues();
+			Set<String> referencedValues = message.getReferencedValues();
 
-
-			Set<String> dependentValues = loadColumnCached(dependentFile, message.getDependentFileId(), message.getDependentColumnIndex());
-			Set<String> referencedValues = loadColumnCached(referencedFile, message.getReferencedFileId(), message.getReferencedColumnIndex());
-
+			// Check subset relationship
 			for (String value : dependentValues) {
 				if (!referencedValues.contains(value)) {
 					violated = true;
@@ -273,33 +199,30 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 
 		} catch (Exception e) {
 			violated = true; // fail-safe
+			getContext().getLog().error("Error checking IND: {}", e.getMessage());
 		}
 
 		DependencyMiner.UnaryIndResult result =
-				new DependencyMiner.UnaryIndResult(
-						message.getDependentFileId(),
-						message.getDependentColumnIndex(),
-						message.getReferencedFileId(),
-						message.getReferencedColumnIndex(),
-						violated
-				);
+			new DependencyMiner.UnaryIndResult(
+				message.getDependentFileId(),
+				message.getDependentColumnIndex(),
+				message.getReferencedFileId(),
+				message.getReferencedColumnIndex(),
+				violated
+			);
 
-		// send result back via LargeMessageProxy
+		// Send result back via LargeMessageProxy
 		this.largeMessageProxy.tell(
-				new LargeMessageProxy.SendMessage(
-						result,
-						message.getDependencyMinerLargeMessageProxy()
-				)
+			new LargeMessageProxy.SendMessage(
+				result,
+				message.getDependencyMinerLargeMessageProxy()
+			)
 		);
 
 		// IMPORTANT: ask miner for next task
 		message.getMiner().tell(
-				new DependencyMiner.RequestWorkMessage(getContext().getSelf())
+			new DependencyMiner.RequestWorkMessage(getContext().getSelf())
 		);
-
-//		getContext().getSystem().receptionist().tell(
-//				new DependencyMiner.RequestWorkMessage(getContext().getSelf())
-//		);
 
 		return this;
 	}
