@@ -25,7 +25,7 @@ public class Main {
 
 			if (config.isEnterShutdown()) {
 				waitForInput(">>> Press ENTER to exit <<<");
-				guardian.tell(new Guardian.ShutdownMessage(null));
+				guardian.tell(new Guardian.ShutdownMessage());
 
 			}
 		}

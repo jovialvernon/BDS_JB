@@ -1,5 +1,11 @@
 package de.ddm.actors.profiling;
 
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.List;
+
 import akka.actor.typed.Behavior;
 import akka.actor.typed.PostStop;
 import akka.actor.typed.javadsl.AbstractBehavior;
@@ -13,12 +19,6 @@ import de.ddm.structures.InclusionDependency;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.util.List;
 
 public class ResultCollector extends AbstractBehavior<ResultCollector.Message> {
 
@@ -74,6 +74,8 @@ public class ResultCollector extends AbstractBehavior<ResultCollector.Message> {
 
 	private boolean finalized = false;
 
+	private int indCount = 0;
+
 
 	////////////////////
 	// Actor Behavior //
@@ -89,29 +91,31 @@ public class ResultCollector extends AbstractBehavior<ResultCollector.Message> {
 	}
 
 	private Behavior<Message> handle(ResultMessage message) throws IOException {
-//		this.getContext().getLog().info("Received {} INDs!", message.getInclusionDependencies().size());
+        this.getContext().getLog().info("Received {} INDs!", message.getInclusionDependencies().size());
 
-		for (InclusionDependency ind : message.getInclusionDependencies()) {
-			this.writer.write(ind.toString());
-			this.writer.newLine();
-		}
+        for (InclusionDependency ind : message.getInclusionDependencies()) {
+                indCount++;
+                this.getContext().getLog().info("Writing IND #{}: {}", indCount, ind.toString());
+                
+                this.writer.write(ind.toString());
+                this.writer.newLine();
+                this.writer.flush();  // ← CRITICAL: Flush immediately
+        }
 
-		return this;
+        return this;
 	}
 
 	private Behavior<Message> handle(FinalizeMessage message) throws IOException {
-		if (finalized) {
-			return this;
-		}
-		finalized = true;
-		this.getContext().getLog().info("Received FinalizeMessage!");
+        if (finalized) {
+                return this;
+        }
+        finalized = true;
+        this.getContext().getLog().info("Received FinalizeMessage! Total INDs written: {}", indCount);
 
-		this.writer.flush();
-		this.getContext().getSystem().unsafeUpcast().tell(new Guardian.ShutdownMessage());
+        this.writer.flush();
+        this.getContext().getSystem().unsafeUpcast().tell(new Guardian.ShutdownMessage());
 
-
-
-		return this;
+        return this;
 	}
 
 	private Behavior<Message> handle(PostStop signal) throws IOException {

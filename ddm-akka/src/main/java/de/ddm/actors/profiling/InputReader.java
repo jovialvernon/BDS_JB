@@ -11,9 +11,9 @@ import com.opencsv.CSVReader;
 import com.opencsv.exceptions.CsvValidationException;
 import de.ddm.serialization.AkkaSerializable;
 import de.ddm.singletons.InputConfigurationSingleton;
-//import lombok.AllArgsConstructor;
-//import lombok.Getter;
-//import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 import java.io.File;
 import java.io.IOException;
@@ -29,46 +29,25 @@ public class InputReader extends AbstractBehavior<InputReader.Message> {
 	public interface Message extends AkkaSerializable {
 	}
 
-//	@Getter
-//	@NoArgsConstructor
-//	@AllArgsConstructor
+	@NoArgsConstructor
+	@AllArgsConstructor
+	@Getter
 	public static class ReadHeaderMessage implements Message {
-		private static final long serialVersionUID = 1729062814525657711L;
 
-		private final ActorRef<DependencyMiner.Message> replyTo;
-
-		public ReadHeaderMessage(ActorRef<DependencyMiner.Message> replyTo) {
-			this.replyTo = replyTo;
-		}
-
-		public ActorRef<DependencyMiner.Message> getReplyTo() {
-			return replyTo;
-		}
+		private ActorRef<DependencyMiner.Message> replyTo;
 	}
 
 
-//	@Getter
-//	@NoArgsConstructor
-//	@AllArgsConstructor
+
+	@NoArgsConstructor
+	@AllArgsConstructor
+	@Getter
 	public static class ReadBatchMessage implements Message {
-		private static final long serialVersionUID = -7915854043207237318L;
 
-		private final ActorRef<DependencyMiner.Message> replyTo;
-		private final int batchSize;
-
-		public ReadBatchMessage(ActorRef<DependencyMiner.Message> replyTo, int batchSize) {
-			this.replyTo = replyTo;
-			this.batchSize = batchSize;
-		}
-
-		public ActorRef<DependencyMiner.Message> getReplyTo() {
-			return replyTo;
-		}
-
-		public int getBatchSize() {
-			return batchSize;
-		}
+		private ActorRef<DependencyMiner.Message> replyTo;
+		private int batchSize;
 	}
+
 
 
 	////////////////////////

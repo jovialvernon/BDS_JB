@@ -14,11 +14,12 @@ import de.ddm.serialization.AkkaSerializable;
 import de.ddm.singletons.InputConfigurationSingleton;
 import de.ddm.singletons.SystemConfigurationSingleton;
 import de.ddm.structures.InclusionDependency;
-//import lombok.AllArgsConstructor;
-//import lombok.Getter;
-//import lombok.NoArgsConstructor;
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.Data;
+
 
 import java.io.File;
 import java.util.ArrayList;
@@ -34,89 +35,54 @@ import java.util.Random;
 		public interface Message extends AkkaSerializable, LargeMessageProxy.LargeMessage {
 		}
 
-//		@NoArgsConstructor
-		public static class StartMessage implements de.ddm.actors.profiling.DependencyMiner.Message {
+		@NoArgsConstructor
+		public static class StartMessage implements DependencyMiner.Message {
 			private static final long serialVersionUID = -1963913294517850454L;
 		}
 
-//		@Getter
-//		@NoArgsConstructor
-//		@AllArgsConstructor
-		public static class HeaderMessage implements de.ddm.actors.profiling.DependencyMiner.Message {
+
+		@NoArgsConstructor
+		@AllArgsConstructor
+		@Getter
+		public static class HeaderMessage implements DependencyMiner.Message {
 			private static final long serialVersionUID = -5322425954432915838L;
+
 			int id;
 			String[] header;
-
-			public HeaderMessage(int id, String[] header) {
-				this.id = id;
-				this.header = header;
-			}
-
-			public int getId() {
-				return id;
-			}
-
-			public String[] getHeader() {
-				return header;
-			}
 		}
 
-//		@Getter
-//		@NoArgsConstructor
-//		@AllArgsConstructor
-		public static class BatchMessage implements de.ddm.actors.profiling.DependencyMiner.Message {
+
+		@NoArgsConstructor
+		@AllArgsConstructor
+		@Getter
+		public static class BatchMessage implements DependencyMiner.Message {
 			private static final long serialVersionUID = 4591192372652568030L;
+
 			int id;
 			List<String[]> batch;
-
-			public BatchMessage(int id, List<String[]> batch) {
-				this.id = id;
-				this.batch = batch;
-			}
-
-			public int getId() {
-				return id;
-			}
-
-			public List<String[]> getBatch() {
-				return batch;
-			}
 		}
 
-//		@Getter
+
+		@NoArgsConstructor
+		@AllArgsConstructor
+		@Getter
 		public static class RegistrationMessage implements Message {
-			private static final long serialVersionUID = -4025238529984914107L;
-
-			private final ActorRef<DependencyWorker.Message> dependencyWorker;
-
-			public RegistrationMessage(ActorRef<DependencyWorker.Message> dependencyWorker) {
-				this.dependencyWorker = dependencyWorker;
-
-
-			}
-			public ActorRef<DependencyWorker.Message> getDependencyWorker() {
-				return dependencyWorker;
-			}
+			private ActorRef<DependencyWorker.Message> dependencyWorker;
 		}
 
 
 
 
-//		@Getter
+
+
+		@NoArgsConstructor
+		@AllArgsConstructor
+		@Getter
 		public static class RequestWorkMessage implements Message {
-			private static final long serialVersionUID = 1L;
-
-			private final ActorRef<DependencyWorker.Message> worker;
-
-			public RequestWorkMessage(ActorRef<DependencyWorker.Message> worker) {
-				this.worker = worker;
-			}
-
-			public ActorRef<DependencyWorker.Message> getWorker() {
-				return worker;
-			}
-
+			private ActorRef<DependencyWorker.Message> worker;
 		}
+
+
 
 
 
@@ -129,37 +95,25 @@ import java.util.Random;
 //		int result;
 //	}
 
-//		@Getter
-//		@NoArgsConstructor
+		@Getter
+		@Setter
+		@NoArgsConstructor
 //		@AllArgsConstructor
-//		public static class UnaryIndResult implements de.ddm.actors.profiling.DependencyMiner.Message {
-//			private static final long serialVersionUID = 1L;
-//
-//			int dependentFileId;
-//			int dependentColumnIndex;
-//
-//			int referencedFileId;
-//			int referencedColumnIndex;
-//
-//			boolean violated;
-//		}
-
 		public static class UnaryIndResult implements Message {
 			private static final long serialVersionUID = 1L;
 
-			private final int dependentFileId;
-			private final int dependentColumnIndex;
-			private final int referencedFileId;
-			private final int referencedColumnIndex;
-			private final boolean violated;
+			private int dependentFileId;
+			private int dependentColumnIndex;
+			private int referencedFileId;
+			private int referencedColumnIndex;
+			private boolean violated;
 
-			@JsonCreator
-		public UnaryIndResult(
-					@JsonProperty("dependentFileId") int dependentFileId,
-					@JsonProperty("dependentColumnIndex") int dependentColumnIndex,
-					@JsonProperty("referencedFileId") int referencedFileId,
-					@JsonProperty("referencedColumnIndex") int referencedColumnIndex,
-					@JsonProperty("violated") boolean violated
+			public UnaryIndResult(
+					int dependentFileId,
+					int dependentColumnIndex,
+					int referencedFileId,
+					int referencedColumnIndex,
+					boolean violated
 			) {
 				this.dependentFileId = dependentFileId;
 				this.dependentColumnIndex = dependentColumnIndex;
@@ -167,27 +121,11 @@ import java.util.Random;
 				this.referencedColumnIndex = referencedColumnIndex;
 				this.violated = violated;
 			}
-
-			public int getDependentFileId() {
-				return dependentFileId;
-			}
-
-			public int getDependentColumnIndex() {
-				return dependentColumnIndex;
-			}
-
-			public int getReferencedFileId() {
-				return referencedFileId;
-			}
-
-			public int getReferencedColumnIndex() {
-				return referencedColumnIndex;
-			}
-
-			public boolean isViolated() {
-				return violated;
-			}
 		}
+
+
+
+
 		////////////////////////
 		// Actor Construction //
 		////////////////////////
@@ -232,7 +170,7 @@ import java.util.Random;
 		private final ActorRef<LargeMessageProxy.Message> largeMessageProxy;
 
 		private final List<ActorRef<DependencyWorker.Message>> dependencyWorkers;
-		private boolean workersRegistered = false;
+//		private boolean workersRegistered = false;
 
 		private int nextDependentFile = 0;
 		private int nextDependentColumn = 0;
@@ -252,6 +190,9 @@ import java.util.Random;
 		private boolean noMoreTasks = false;
 
 		private boolean started = false;
+
+		private int inFlightTasks = 0;
+
 
 
 		////////////////////
@@ -370,9 +311,9 @@ import java.util.Random;
 			// I probably need to idle the worker for a while, if I do not have work for it right now ... (see master/worker pattern)
 
 //			dependencyWorker.tell(new DependencyWorker.TaskMessage(this.largeMessageProxy, 42));
-			if (!workersRegistered) {
-				workersRegistered = true;
-			}
+//			if (!workersRegistered) {
+//				workersRegistered = true;
+//			}
 
 			// If StartMessage already happened, start reading now
 //			if (started) {
@@ -456,6 +397,7 @@ import java.util.Random;
 		);
 
 		tasksIssued++;
+		inFlightTasks++;
 		advanceIndices();
 		return this;
 	}
@@ -465,9 +407,11 @@ import java.util.Random;
 
 		private Behavior<Message> handle(UnaryIndResult message) {
 
-		resultsReceived++;
+			resultsReceived++;
+			inFlightTasks--;
 
-		if (!message.isViolated()) {
+
+			if (!message.isViolated()) {
 			InclusionDependency ind = new InclusionDependency(
 					inputFiles[message.getDependentFileId()],
 					new String[]{headerLines[message.getDependentFileId()][message.getDependentColumnIndex()]},
@@ -479,10 +423,7 @@ import java.util.Random;
 					new ResultCollector.ResultMessage(List.of(ind))
 			);
 		}
-
-
-		// TERMINATION CONDITION
-		if (resultsReceived == totalTasks) {
+		if (noMoreTasks && inFlightTasks == 0) {
 			getContext().getLog().info(
 					"All unary INDs processed ({} tasks). Terminating.",
 					totalTasks

@@ -35,23 +35,27 @@ public class Guardian extends AbstractBehavior<Guardian.Message> {
 //	@Getter
 //	@NoArgsConstructor
 //	@AllArgsConstructor
+//	public static class ShutdownMessage implements Message {
+//		private static final long serialVersionUID = 7516129288777469221L;
+//
+//		private final ActorRef<Message> initiator;
+//
+//		public ShutdownMessage(ActorRef<Message> initiator) {
+//			this.initiator = initiator;
+//		}
+//
+//		public ActorRef<Message> getInitiator() {
+//			return initiator;
+//		}
+//	}
 	public static class ShutdownMessage implements Message {
 		private static final long serialVersionUID = 7516129288777469221L;
-
-		private final ActorRef<Message> initiator;
-
-		public ShutdownMessage(ActorRef<Message> initiator) {
-			this.initiator = initiator;
-		}
-
-		public ActorRef<Message> getInitiator() {
-			return initiator;
-		}
 	}
 
 
 
-//	@Getter
+
+	//	@Getter
 //	@NoArgsConstructor
 //	@AllArgsConstructor
 	public static class ReceptionistListingMessage implements Message {
@@ -133,21 +137,41 @@ public class Guardian extends AbstractBehavior<Guardian.Message> {
 		return this;
 	}
 
-	private Behavior<Message> handle(ShutdownMessage message) {
-		ActorRef<Message> self = this.getContext().getSelf();
+//	private Behavior<Message> handle(ShutdownMessage message) {
+//		ActorRef<Message> self = this.getContext().getSelf();
+//
+//		if ((message.getInitiator() != null) || this.isClusterDown()) {
+//			this.shutdown();
+//		} else {
+//			for (ActorRef<Message> userGuardian : this.userGuardians)
+//				if (!userGuardian.equals(self))
+//					userGuardian.tell(new ShutdownMessage(self));
+//
+//			if (!this.timer.isTimerActive("ShutdownReattempt"))
+//				this.timer.startTimerAtFixedRate("ShutdownReattempt", message, Duration.ofSeconds(5), Duration.ofSeconds(5));
+//		}
+//		return this;
+//	}
 
-		if ((message.getInitiator() != null) || this.isClusterDown()) {
+	private Behavior<Message> handle(ShutdownMessage message) {
+		if (this.isClusterDown()) {
 			this.shutdown();
 		} else {
 			for (ActorRef<Message> userGuardian : this.userGuardians)
-				if (!userGuardian.equals(self))
-					userGuardian.tell(new ShutdownMessage(self));
+				if (!userGuardian.equals(this.getContext().getSelf()))
+					userGuardian.tell(new ShutdownMessage());
 
 			if (!this.timer.isTimerActive("ShutdownReattempt"))
-				this.timer.startTimerAtFixedRate("ShutdownReattempt", message, Duration.ofSeconds(5), Duration.ofSeconds(5));
+				this.timer.startTimerAtFixedRate(
+						"ShutdownReattempt",
+						message,
+						Duration.ofSeconds(5),
+						Duration.ofSeconds(5)
+				);
 		}
 		return this;
 	}
+
 
 	private boolean isClusterDown() {
 		return this.userGuardians.isEmpty() || (this.userGuardians.contains(this.getContext().getSelf()) && this.userGuardians.size() == 1);
