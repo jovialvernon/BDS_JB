@@ -392,20 +392,21 @@
 
 		private Behavior<Message> handle(RequestWorkMessage message) {
 			if (headerLines[0] == null || noMoreTasks) return this;
-			
+
 			while (nextDependentFile == nextReferencedFile &&
 					nextDependentColumn == nextReferencedColumn) {
 				advanceIndices();
 			}
-			
+
 			if (nextDependentFile >= inputFiles.length) {
 				noMoreTasks = true;
 				return this;
 			}
-			
+
 			// Get column data from storage
 			String depKey = nextDependentFile + ":" + nextDependentColumn;
 			String refKey = nextReferencedFile + ":" + nextReferencedColumn;
+			
 			java.util.Set<String> depValues = columnData.get(depKey);
 			java.util.Set<String> refValues = columnData.get(refKey);
 			
@@ -421,10 +422,13 @@
 					depValues,
 					refValues
 				);
-
-				message.getWorker().tell(task);
 				
-			
+				this.largeMessageProxy.tell(
+					new LargeMessageProxy.SendMessage(
+						task,
+						message.getWorkerProxy()  
+					)
+				);
 				
 				tasksIssued++;
 				inFlightTasks++;
