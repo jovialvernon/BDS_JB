@@ -33,7 +33,7 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		}
 	}
 
-	public static class TaskMessage implements Message {
+	public static class TaskMessage implements Message, LargeMessageProxy.LargeMessage {
 		private static final long serialVersionUID = -4667745204456518160L;
 
 		private int dependentFileId;
@@ -176,17 +176,30 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		Set<ActorRef<DependencyMiner.Message>> dependencyMiners = message.getListing().getServiceInstances(DependencyMiner.dependencyMinerService);
 		for (ActorRef<DependencyMiner.Message> dependencyMiner : dependencyMiners) {
 			dependencyMiner.tell(new DependencyMiner.RegistrationMessage(this.getContext().getSelf()));
-			dependencyMiner.tell(new DependencyMiner.RequestWorkMessage(this.getContext().getSelf()));
-		}
+			dependencyMiner.tell(new DependencyMiner.RequestWorkMessage(
+				this.getContext().getSelf(),
+				this.largeMessageProxy  // Send our proxy reference!
+			));
+}
 		return this;
 	}
 
 	private Behavior<Message> handle(TaskMessage message) {
+
+		if (message.getDependentValues() == null || message.getReferencedValues() == null) {
+			message.getMiner().tell(new DependencyMiner.RequestWorkMessage(
+				getContext().getSelf(),
+				this.largeMessageProxy  // ✅ Add proxy reference!
+			));
+			return this;
+		}
+
 		boolean violated = false;
+
 
 		try {
 			// USE DATA FROM MESSAGE - NO FILE ACCESS!
-			Set<String> dependentValues = message.getDependentValues();
+			Set<String> dependentValues = message.getDependentValues();	
 			Set<String> referencedValues = message.getReferencedValues();
 
 			// Check subset relationship
@@ -219,9 +232,11 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 			)
 		);
 
-		// IMPORTANT: ask miner for next task
 		message.getMiner().tell(
-			new DependencyMiner.RequestWorkMessage(getContext().getSelf())
+			new DependencyMiner.RequestWorkMessage(
+				getContext().getSelf(),
+				this.largeMessageProxy  // ✅ Include proxy reference!
+			)
 		);
 
 		return this;

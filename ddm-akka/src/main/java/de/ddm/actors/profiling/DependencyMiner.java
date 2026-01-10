@@ -1,5 +1,9 @@
 	package de.ddm.actors.profiling;
 
+	import java.io.File;
+	import java.util.ArrayList;
+	import java.util.List;
+
 	import akka.actor.typed.ActorRef;
 	import akka.actor.typed.Behavior;
 	import akka.actor.typed.Terminated;
@@ -18,13 +22,6 @@
 	import lombok.Getter;
 	import lombok.NoArgsConstructor;
 	import lombok.Setter;
-	import lombok.Data;
-
-
-	import java.io.File;
-	import java.util.ArrayList;
-	import java.util.List;
-	import java.util.Random;
 
 		public class DependencyMiner extends AbstractBehavior<de.ddm.actors.profiling.DependencyMiner.Message> {
 
@@ -79,9 +76,10 @@
 			@AllArgsConstructor
 			@Getter
 			public static class RequestWorkMessage implements Message {
+				private static final long serialVersionUID = 1L;
 				private ActorRef<DependencyWorker.Message> worker;
+				private ActorRef<LargeMessageProxy.Message> workerProxy;
 			}
-
 
 
 
@@ -209,6 +207,11 @@
 			// Storage for column data received from InputReaders
 			private final java.util.Map<String, java.util.Set<String>> columnData = new java.util.HashMap<>();
 
+			// Track when all column data is loaded
+			private int expectedColumns = 0;
+			private int receivedColumns = 0;
+			private boolean allColumnsLoaded = false;
+
 
 			////////////////////
 			// Actor Behavior //
@@ -295,17 +298,18 @@
 				}
 
 				getContext().getLog().info("Total unary IND tasks: {}", totalTasks);
-
-
+            
+				// Calculate expected columns
+				for (int f = 0; f < inputFiles.length; f++) {
+					expectedColumns += headerLines[f].length;
+				}
+				getContext().getLog().info("Expecting {} columns total", expectedColumns);
 			}
-	//		for (ActorRef<DependencyWorker.Message> worker : dependencyWorkers) {
-	//			worker.tell(new DependencyMiner.RequestWorkMessage(worker));
-	//		}
-
-
-
+	//      for (ActorRef<DependencyWorker.Message> worker : dependencyWorkers) {
+	//              worker.tell(new DependencyMiner.RequestWorkMessage(worker));
+	//      }
 			return this;
-		}
+	}
 
 		private Behavior<Message> handle(BatchMessage message) {
 			// Ignoring batch content for now ... but I could do so much with it.
@@ -388,38 +392,39 @@
 
 		private Behavior<Message> handle(RequestWorkMessage message) {
 			if (headerLines[0] == null || noMoreTasks) return this;
-
+			
 			while (nextDependentFile == nextReferencedFile &&
 					nextDependentColumn == nextReferencedColumn) {
 				advanceIndices();
 			}
-
+			
 			if (nextDependentFile >= inputFiles.length) {
 				noMoreTasks = true;
 				return this;
 			}
-
+			
 			// Get column data from storage
 			String depKey = nextDependentFile + ":" + nextDependentColumn;
 			String refKey = nextReferencedFile + ":" + nextReferencedColumn;
-			
 			java.util.Set<String> depValues = columnData.get(depKey);
 			java.util.Set<String> refValues = columnData.get(refKey);
 			
 			// Only send task if we have the data
 			if (depValues != null && refValues != null) {
-				message.getWorker().tell(
-					new DependencyWorker.TaskMessage(
-						nextDependentFile,
-						nextDependentColumn,
-						nextReferencedFile,
-						nextReferencedColumn,
-						getContext().getSelf(),
-						this.largeMessageProxy,
-						depValues,    // NEW! Send actual data
-						refValues     // NEW! Send actual data
-					)
+				DependencyWorker.TaskMessage task = new DependencyWorker.TaskMessage(
+					nextDependentFile,
+					nextDependentColumn,
+					nextReferencedFile,
+					nextReferencedColumn,
+					getContext().getSelf(),
+					this.largeMessageProxy,
+					depValues,
+					refValues
 				);
+
+				message.getWorker().tell(task);
+				
+			
 				
 				tasksIssued++;
 				inFlightTasks++;
@@ -428,8 +433,6 @@
 			advanceIndices();
 			return this;
 		}
-
-
 
 
 			private Behavior<Message> handle(UnaryIndResult message) {
@@ -464,9 +467,23 @@
 		private Behavior<Message> handle(ColumnDataMessage message) {
 			String key = message.getFileId() + ":" + message.getColumnIndex();
 			columnData.put(key, message.getValues());
+			receivedColumns++;
 			
-			getContext().getLog().info("Stored column data for file {} col {} ({} values)",
-				message.getFileId(), message.getColumnIndex(), message.getValues().size());
+			getContext().getLog().info("Stored column data for file {} col {} ({} values) - {}/{} columns loaded",
+				message.getFileId(), message.getColumnIndex(), message.getValues().size(),
+				receivedColumns, expectedColumns);
+			
+			// When all columns loaded, kick workers to request work!
+			if (!allColumnsLoaded && receivedColumns == expectedColumns) {
+				allColumnsLoaded = true;
+				getContext().getLog().info("All column data loaded! Kicking {} workers to start processing", 
+					dependencyWorkers.size());
+				
+				// Note: We can't kick workers here anymore since we don't have their proxy refs!
+// Workers will request work after registering, and the check in handle(RequestWorkMessage)
+// will handle cases where data isn't ready yet by just returning without sending a task.
+// Workers will retry by sending RequestWorkMessage again when other workers finish tasks.
+			}
 			
 			return this;
 		}
