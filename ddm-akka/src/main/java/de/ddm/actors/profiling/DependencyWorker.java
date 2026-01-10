@@ -176,7 +176,7 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		Set<ActorRef<DependencyMiner.Message>> dependencyMiners = message.getListing().getServiceInstances(DependencyMiner.dependencyMinerService);
 		for (ActorRef<DependencyMiner.Message> dependencyMiner : dependencyMiners) {
 			dependencyMiner.tell(new DependencyMiner.RegistrationMessage(this.getContext().getSelf()));
-			dependencyMiner.tell(new DependencyMiner.RequestWorkMessage(
+			dependencyMiner.tell(new DependencyMiner.WorkRequest(
 				this.getContext().getSelf(),
 				this.largeMessageProxy  // Send our proxy reference!
 			));
@@ -187,7 +187,7 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 	private Behavior<Message> handle(TaskMessage message) {
 
 		if (message.getDependentValues() == null || message.getReferencedValues() == null) {
-			message.getMiner().tell(new DependencyMiner.RequestWorkMessage(
+			message.getMiner().tell(new DependencyMiner.WorkRequest(
 				getContext().getSelf(),
 				this.largeMessageProxy  // ✅ Add proxy reference!
 			));
@@ -233,7 +233,7 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		);
 
 		message.getMiner().tell(
-			new DependencyMiner.RequestWorkMessage(
+			new DependencyMiner.WorkRequest(
 				getContext().getSelf(),
 				this.largeMessageProxy  // ✅ Include proxy reference!
 			)

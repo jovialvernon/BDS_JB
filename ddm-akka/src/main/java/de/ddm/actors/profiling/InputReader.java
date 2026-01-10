@@ -159,7 +159,7 @@ public class InputReader extends AbstractBehavior<InputReader.Message> {
 			getContext().getLog().info("Sending column {} from file {} ({} unique values)", 
 				colIdx, this.id, columnSets[colIdx].size());	
 			
-			replyTo.tell(new DependencyMiner.ColumnDataMessage(this.id, colIdx, columnSets[colIdx]));
+			replyTo.tell(new DependencyMiner.ColumnCacheUpdate(this.id, colIdx, columnSets[colIdx]));
 		}
 	}
 

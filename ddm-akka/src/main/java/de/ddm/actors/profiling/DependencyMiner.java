@@ -75,23 +75,13 @@
 			@NoArgsConstructor
 			@AllArgsConstructor
 			@Getter
-			public static class RequestWorkMessage implements Message {
+			public static class WorkRequest implements Message {
 				private static final long serialVersionUID = 1L;
 				private ActorRef<DependencyWorker.Message> worker;
 				private ActorRef<LargeMessageProxy.Message> workerProxy;
 			}
 
 
-
-
-	//	@Getter
-	//	@NoArgsConstructor
-	//	@AllArgsConstructor
-	//	public static class CompletionMessage implements Message {
-	//		private static final long serialVersionUID = -7642425159675583598L;
-	//		ActorRef<DependencyWorker.Message> dependencyWorker;
-	//		int result;
-	//	}
 
 			@Getter
 			@Setter
@@ -125,7 +115,7 @@
 			@AllArgsConstructor
 			@Getter
 			@Setter
-			public static class ColumnDataMessage implements Message {
+			public static class ColumnCacheUpdate implements Message {
 				private static final long serialVersionUID = 1L;
 				private int fileId;
 				private int columnIndex;
@@ -204,12 +194,12 @@
 
 			private int inFlightTasks = 0;
 
-			// Storage for column data received from InputReaders
-			private final java.util.Map<String, java.util.Set<String>> columnData = new java.util.HashMap<>();
+			// Data centralization: Master stores all column values for distribution
+			private final java.util.Map<String, java.util.Set<String>> masterColumnCache = new java.util.HashMap<>();
 
-			// Track when all column data is loaded
-			private int expectedColumns = 0;
-			private int receivedColumns = 0;
+			// Progress tracking for data loading phase
+			private int totalColumnsToLoad = 0;
+			private int loadedColumnsCount = 0;
 			private boolean allColumnsLoaded = false;
 
 
@@ -224,17 +214,17 @@
 						.onMessage(de.ddm.actors.profiling.DependencyMiner.BatchMessage.class, this::handle)
 						.onMessage(de.ddm.actors.profiling.DependencyMiner.HeaderMessage.class, this::handle)
 						.onMessage(de.ddm.actors.profiling.DependencyMiner.RegistrationMessage.class, this::handle)
-						.onMessage(de.ddm.actors.profiling.DependencyMiner.RequestWorkMessage.class, this::handle)
+						.onMessage(de.ddm.actors.profiling.DependencyMiner.WorkRequest.class, this::handle)
 	//				.onMessage(CompletionMessage.class, this::handle)
 						.onMessage(de.ddm.actors.profiling.DependencyMiner.UnaryIndResult.class, this::handle)
-						.onMessage(DependencyMiner.ColumnDataMessage.class, this::handle)
+						.onMessage(DependencyMiner.ColumnCacheUpdate.class, this::handle)
 
 
 						.onSignal(Terminated.class, this::handle)
 						.build();
 			}
 
-			private void advanceIndices() {
+			private void moveToNextTaskPair() {
 
 				nextReferencedColumn++;
 
@@ -301,21 +291,16 @@
             
 				// Calculate expected columns
 				for (int f = 0; f < inputFiles.length; f++) {
-					expectedColumns += headerLines[f].length;
+					totalColumnsToLoad += headerLines[f].length;
 				}
-				getContext().getLog().info("Expecting {} columns total", expectedColumns);
+				getContext().getLog().info("Expecting {} columns total", totalColumnsToLoad);
 			}
-	//      for (ActorRef<DependencyWorker.Message> worker : dependencyWorkers) {
-	//              worker.tell(new DependencyMiner.RequestWorkMessage(worker));
-	//      }
+
 			return this;
 	}
 
 		private Behavior<Message> handle(BatchMessage message) {
-			// Ignoring batch content for now ... but I could do so much with it.
-
-	//		System.out.println(MemoryUtils.byteSizeOf(message.getBatch()));
-	//		System.out.println(MemoryUtils.bytesMax() + "    " + MemoryUtils.bytesFree());
+			
 
 			if (!message.getBatch().isEmpty())
 				this.inputReaders.get(message.getId()).tell(new InputReader.ReadBatchMessage(this.getContext().getSelf(), 10000));
@@ -327,56 +312,13 @@
 			if (!this.dependencyWorkers.contains(dependencyWorker)) {
 				this.dependencyWorkers.add(dependencyWorker);
 				this.getContext().watch(dependencyWorker);
-				// The worker should get some work ... let me send her something before I figure out what I actually want from her.
-				// I probably need to idle the worker for a while, if I do not have work for it right now ... (see master/worker pattern)
-
-	//			dependencyWorker.tell(new DependencyWorker.TaskMessage(this.largeMessageProxy, 42));
-	//			if (!workersRegistered) {
-	//				workersRegistered = true;
-	//			}
-
-				// If StartMessage already happened, start reading now
-	//			if (started) {
-	//				for (ActorRef<InputReader.Message> inputReader : inputReaders) {
-	//					inputReader.tell(
-	//							new InputReader.ReadBatchMessage(getContext().getSelf(), 10000)
-	//					);
-	//				}
-	//			}
-
+				
 
 			}
 			return this;
 		}
 
-	//	private Behavior<Message> handle(CompletionMessage message) {
-	//		ActorRef<DependencyWorker.Message> dependencyWorker = message.getDependencyWorker();
-	//		// If this was a reasonable result, I would probably do something with it and potentially generate more work ... for now, let's just generate a random, binary IND.
-	//
-	//		if (this.headerLines[0] != null) {
-	//			Random random = new Random();
-	//			int dependent = random.nextInt(this.inputFiles.length);
-	//			int referenced = random.nextInt(this.inputFiles.length);
-	//			File dependentFile = this.inputFiles[dependent];
-	//			File referencedFile = this.inputFiles[referenced];
-	//			String[] dependentAttributes = {this.headerLines[dependent][random.nextInt(this.headerLines[dependent].length)], this.headerLines[dependent][random.nextInt(this.headerLines[dependent].length)]};
-	//			String[] referencedAttributes = {this.headerLines[referenced][random.nextInt(this.headerLines[referenced].length)], this.headerLines[referenced][random.nextInt(this.headerLines[referenced].length)]};
-	//			InclusionDependency ind = new InclusionDependency(dependentFile, dependentAttributes, referencedFile, referencedAttributes);
-	//			List<InclusionDependency> inds = new ArrayList<>(1);
-	//			inds.add(ind);
-	//
-	//			this.resultCollector.tell(new ResultCollector.ResultMessage(inds));
-	//		}
-	//		// I still don't know what task the worker could help me to solve ... but let me keep her busy.
-	//		// Once I found all unary INDs, I could check if this.discoverNaryDependencies is set to true and try to detect n-ary INDs as well!
-	//
-	////		dependencyWorker.tell(new DependencyWorker.TaskMessage(this.largeMessageProxy, 42));
-	//
-	//		// At some point, I am done with the discovery. That is when I should call my end method. Because I do not work on a completable task yet, I simply call it after some time.
-	//		if (System.currentTimeMillis() - this.startTime > 120000)
-	//			this.end();
-	//		return this;
-	//	}
+	
 
 		private void end() {
 			this.resultCollector.tell(new ResultCollector.FinalizeMessage());
@@ -390,12 +332,12 @@
 			return this;
 		}
 
-		private Behavior<Message> handle(RequestWorkMessage message) {
+		private Behavior<Message> handle(WorkRequest message) {
 			if (headerLines[0] == null || noMoreTasks) return this;
 
 			while (nextDependentFile == nextReferencedFile &&
 					nextDependentColumn == nextReferencedColumn) {
-				advanceIndices();
+				moveToNextTaskPair();
 			}
 
 			if (nextDependentFile >= inputFiles.length) {
@@ -407,8 +349,8 @@
 			String depKey = nextDependentFile + ":" + nextDependentColumn;
 			String refKey = nextReferencedFile + ":" + nextReferencedColumn;
 			
-			java.util.Set<String> depValues = columnData.get(depKey);
-			java.util.Set<String> refValues = columnData.get(refKey);
+			java.util.Set<String> depValues = masterColumnCache.get(depKey);
+			java.util.Set<String> refValues = masterColumnCache.get(refKey);
 			
 			// Only send task if we have the data
 			if (depValues != null && refValues != null) {
@@ -434,7 +376,7 @@
 				inFlightTasks++;
 			}
 			
-			advanceIndices();
+			moveToNextTaskPair();
 			return this;
 		}
 
@@ -468,25 +410,22 @@
 			return this;
 		}
 
-		private Behavior<Message> handle(ColumnDataMessage message) {
+		private Behavior<Message> handle(ColumnCacheUpdate message) {
 			String key = message.getFileId() + ":" + message.getColumnIndex();
-			columnData.put(key, message.getValues());
-			receivedColumns++;
+			masterColumnCache.put(key, message.getValues());
+			loadedColumnsCount++;
 			
 			getContext().getLog().info("Stored column data for file {} col {} ({} values) - {}/{} columns loaded",
 				message.getFileId(), message.getColumnIndex(), message.getValues().size(),
-				receivedColumns, expectedColumns);
+				loadedColumnsCount, totalColumnsToLoad);
 			
 			// When all columns loaded, kick workers to request work!
-			if (!allColumnsLoaded && receivedColumns == expectedColumns) {
+			if (!allColumnsLoaded && loadedColumnsCount == totalColumnsToLoad) {
 				allColumnsLoaded = true;
 				getContext().getLog().info("All column data loaded! Kicking {} workers to start processing", 
 					dependencyWorkers.size());
 				
-				// Note: We can't kick workers here anymore since we don't have their proxy refs!
-// Workers will request work after registering, and the check in handle(RequestWorkMessage)
-// will handle cases where data isn't ready yet by just returning without sending a task.
-// Workers will retry by sending RequestWorkMessage again when other workers finish tasks.
+
 			}
 			
 			return this;
