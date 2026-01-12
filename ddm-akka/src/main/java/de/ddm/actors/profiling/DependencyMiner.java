@@ -65,6 +65,7 @@
 			@Getter
 			public static class RegistrationMessage implements Message {
 				private ActorRef<DependencyWorker.Message> dependencyWorker;
+				private ActorRef<LargeMessageProxy.Message> workerProxy;
 			}
 
 
@@ -171,6 +172,8 @@
 			private final ActorRef<LargeMessageProxy.Message> largeMessageProxy;
 
 			private final List<ActorRef<DependencyWorker.Message>> dependencyWorkers;
+
+			private final List<ActorRef<LargeMessageProxy.Message>> workerProxies = new ArrayList<>();
 	//		private boolean workersRegistered = false;
 
 			private int nextDependentFile = 0;
@@ -309,11 +312,17 @@
 
 		private Behavior<Message> handle(RegistrationMessage message) {
 			ActorRef<DependencyWorker.Message> dependencyWorker = message.getDependencyWorker();
+			ActorRef<LargeMessageProxy.Message> workerProxy = message.getWorkerProxy();
+			
 			if (!this.dependencyWorkers.contains(dependencyWorker)) {
 				this.dependencyWorkers.add(dependencyWorker);
+				this.workerProxies.add(workerProxy);  // ✅ Store proxy!
 				this.getContext().watch(dependencyWorker);
 				
-
+				// ✅ If data already loaded, send cache to new worker
+				if (allColumnsLoaded) {
+					sendCacheToWorker(workerProxy);  // ✅ Pass proxy!
+				}
 			}
 			return this;
 		}
@@ -333,7 +342,7 @@
 		}
 
 		private Behavior<Message> handle(WorkRequest message) {
-			if (headerLines[0] == null || noMoreTasks) return this;
+			if (headerLines[0] == null || noMoreTasks || !allColumnsLoaded) return this;
 
 			while (nextDependentFile == nextReferencedFile &&
 					nextDependentColumn == nextReferencedColumn) {
@@ -345,36 +354,23 @@
 				return this;
 			}
 
-			// Get column data from storage
-			String depKey = nextDependentFile + ":" + nextDependentColumn;
-			String refKey = nextReferencedFile + ":" + nextReferencedColumn;
+			// ✅ SEND LIGHTWEIGHT TASK - no data, just IDs!
+			DependencyWorker.TaskMessage task = new DependencyWorker.TaskMessage(
+				nextDependentFile,
+				nextDependentColumn,
+				nextReferencedFile,
+				nextReferencedColumn,
+				getContext().getSelf(),
+				this.largeMessageProxy,
+				null,  // ✅ No data!
+				null   // ✅ No data!
+			);
 			
-			java.util.Set<String> depValues = masterColumnCache.get(depKey);
-			java.util.Set<String> refValues = masterColumnCache.get(refKey);
+			// Send directly - task is tiny now!
+			message.getWorker().tell(task);
 			
-			// Only send task if we have the data
-			if (depValues != null && refValues != null) {
-				DependencyWorker.TaskMessage task = new DependencyWorker.TaskMessage(
-					nextDependentFile,
-					nextDependentColumn,
-					nextReferencedFile,
-					nextReferencedColumn,
-					getContext().getSelf(),
-					this.largeMessageProxy,
-					depValues,
-					refValues
-				);
-				
-				this.largeMessageProxy.tell(
-					new LargeMessageProxy.SendMessage(
-						task,
-						message.getWorkerProxy()  
-					)
-				);
-				
-				tasksIssued++;
-				inFlightTasks++;
-			}
+			tasksIssued++;
+			inFlightTasks++;
 			
 			moveToNextTaskPair();
 			return this;
@@ -419,16 +415,43 @@
 				message.getFileId(), message.getColumnIndex(), message.getValues().size(),
 				loadedColumnsCount, totalColumnsToLoad);
 			
-			// When all columns loaded, kick workers to request work!
+			// ✅ When all columns loaded, send cache to all workers!
 			if (!allColumnsLoaded && loadedColumnsCount == totalColumnsToLoad) {
 				allColumnsLoaded = true;
-				getContext().getLog().info("All column data loaded! Kicking {} workers to start processing", 
+				getContext().getLog().info("All column data loaded! Sending cache to {} workers", 
 					dependencyWorkers.size());
 				
-
+				for (int i = 0; i < dependencyWorkers.size(); i++) {
+					sendCacheToWorker(workerProxies.get(i));  // ✅ Use proxy!
+				}
 			}
 			
 			return this;
+		}
+
+		private void sendCacheToWorker(ActorRef<LargeMessageProxy.Message> workerProxy) {
+			getContext().getLog().info("Sending {} columns to worker", masterColumnCache.size());
+			
+			int messageCount = 0;
+			int totalMessages = masterColumnCache.size();
+			
+			for (java.util.Map.Entry<String, java.util.Set<String>> entry : masterColumnCache.entrySet()) {
+				String[] parts = entry.getKey().split(":");
+				int fileId = Integer.parseInt(parts[0]);
+				int colIndex = Integer.parseInt(parts[1]);
+				
+				DependencyWorker.ColumnCacheMessage cacheMsg = 
+					new DependencyWorker.ColumnCacheMessage(fileId, colIndex, entry.getValue(), totalMessages);
+				
+				// ✅ Send to WORKER'S proxy, not master's!
+				this.largeMessageProxy.tell(
+					new LargeMessageProxy.SendMessage(cacheMsg, workerProxy)
+				);
+				
+				messageCount++;
+			}
+			
+			getContext().getLog().info("Sent {} cache messages to worker", messageCount);
 		}
 
 	}
