@@ -68,6 +68,16 @@
 				private ActorRef<LargeMessageProxy.Message> workerProxy;
 			}
 
+			@Getter
+			@NoArgsConstructor
+			@AllArgsConstructor
+			public static class ColumnAssignmentMessage implements Message {
+				private static final long serialVersionUID = 1L;
+				private List<de.ddm.structures.ColumnIdentifier> assignedColumns;
+				private int totalWorkers;
+				private int expectedFileCount; // How many files to expect
+			}
+
 
 
 

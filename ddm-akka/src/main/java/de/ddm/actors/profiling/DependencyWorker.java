@@ -13,6 +13,10 @@ import akka.actor.typed.javadsl.Receive;
 import akka.actor.typed.receptionist.Receptionist;
 import de.ddm.actors.patterns.LargeMessageProxy;
 import de.ddm.serialization.AkkaSerializable;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
 
 
 public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message> {
@@ -136,6 +140,27 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		public void setReferencedValues(java.util.Set<String> value) {
 			this.referencedValues = value;
 		}
+	}
+
+	@Getter
+	@NoArgsConstructor
+	@AllArgsConstructor
+	public static class ColumnDataRequest implements Message, LargeMessageProxy.LargeMessage {
+		private static final long serialVersionUID = 1L;
+		private de.ddm.structures.ColumnIdentifier columnId;
+		private ActorRef<DependencyWorker.Message> requester;
+		private ActorRef<LargeMessageProxy.Message> requesterProxy;
+		private String requestId; // To track which IND check this is for
+	}
+
+	@Getter
+	@NoArgsConstructor
+	@AllArgsConstructor  
+	public static class ColumnDataResponse implements Message, LargeMessageProxy.LargeMessage {
+		private static final long serialVersionUID = 1L;
+		private de.ddm.structures.ColumnIdentifier columnId;
+		private Set<String> values;
+		private String requestId; // Match with request
 	}
 
 	public static class ColumnCacheMessage implements Message, LargeMessageProxy.LargeMessage {
