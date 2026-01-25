@@ -1,6 +1,8 @@
 package de.ddm.actors.profiling;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -16,7 +18,6 @@ import de.ddm.serialization.AkkaSerializable;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-
 
 
 public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message> {
@@ -145,6 +146,16 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 	@Getter
 	@NoArgsConstructor
 	@AllArgsConstructor
+	public static class ColumnAssignmentMessage implements Message {
+		private static final long serialVersionUID = 1L;
+		private List<de.ddm.structures.ColumnIdentifier> assignedColumns;
+		private int totalWorkers;
+		private int expectedFileCount;
+	}
+
+	@Getter
+	@NoArgsConstructor
+	@AllArgsConstructor
 	public static class ColumnDataRequest implements Message, LargeMessageProxy.LargeMessage {
 		private static final long serialVersionUID = 1L;
 		private de.ddm.structures.ColumnIdentifier columnId;
@@ -224,6 +235,9 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 	private int expectedCacheMessages = 0;
 	private int receivedCacheMessages = 0;
 
+	private List<de.ddm.structures.ColumnIdentifier> assignedColumns = new ArrayList<>();
+	private int expectedFileCount = 0;
+
 	
 
 	////////////////////
@@ -236,6 +250,7 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 				.onMessage(ReceptionistListingMessage.class, this::handle)
 				.onMessage(ColumnCacheMessage.class, this::handleColumnCache)
 				.onMessage(TaskMessage.class, this::handle)
+				.onMessage(ColumnAssignmentMessage.class, this::handle)
 				.build();
 	}
 
@@ -294,7 +309,7 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		return this;
 	}
 
-	private Behavior<Message> handle(TaskMessage message) {
+	private Behavior<Message> handle(TaskMessage message) {  
 		// Check if cache is ready
 		if (!cacheInitialized) {
 			getContext().getLog().warn("Task received but cache not ready yet!");
@@ -359,6 +374,14 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 			)
 		);
 
+		return this;
+	}
+
+	private Behavior<Message> handle(ColumnAssignmentMessage message) {
+		this.assignedColumns = message.getAssignedColumns();
+		this.expectedFileCount = message.getExpectedFileCount();
+		
+		getContext().getLog().info("Worker assigned {} columns", assignedColumns.size());
 		return this;
 	}
 }

@@ -113,55 +113,12 @@ public class InputReader extends AbstractBehavior<InputReader.Message> {
 	}
 
 	private Behavior<Message> handle(ReadHeaderMessage message) {
-		// Send header
+		// Only send header - no data loading
 		message.getReplyTo().tell(new DependencyMiner.HeaderMessage(this.id, this.header));
-		
-		// Load and send all column data
-		try {
-			loadAndSendAllColumns(message.getReplyTo());
-		} catch (Exception e) {
-			getContext().getLog().error("Failed to load columns: {}", e.getMessage());
-		}
-		
 		return this;
 	}
 
-	private void loadAndSendAllColumns(ActorRef<DependencyMiner.Message> replyTo) 
-			throws IOException, CsvValidationException {
-		
-		File inputFile = InputConfigurationSingleton.get().getInputFiles()[this.id];
-		
-		// Create array of sets, one for each column
-		java.util.Set<String>[] columnSets = new java.util.HashSet[this.header.length];
-		for (int i = 0; i < this.header.length; i++) {
-			columnSets[i] = new java.util.HashSet<>();
-		}
-		
-		// Create new reader to avoid interfering with batch reading
-		CSVReader dataReader = InputConfigurationSingleton.get().createCSVReader(inputFile);
-		
-		if (InputConfigurationSingleton.get().isFileHasHeader()) {
-			dataReader.readNext(); // Skip header
-		}
-		
-		// Read all rows and populate column sets
-		String[] line;
-		while ((line = dataReader.readNext()) != null) {
-			for (int colIdx = 0; colIdx < line.length && colIdx < this.header.length; colIdx++) {
-				columnSets[colIdx].add(line[colIdx]);
-			}
-		}	
-		
-		dataReader.close();
-		
-		// Send each column to the miner
-		for (int colIdx = 0; colIdx < this.header.length; colIdx++) {
-			getContext().getLog().info("Sending column {} from file {} ({} unique values)", 
-				colIdx, this.id, columnSets[colIdx].size());	
-			
-			replyTo.tell(new DependencyMiner.ColumnCacheUpdate(this.id, colIdx, columnSets[colIdx]));
-		}
-	}
+	
 
 
 

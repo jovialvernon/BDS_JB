@@ -2,7 +2,9 @@
 
 	import java.io.File;
 	import java.util.ArrayList;
+	import java.util.HashMap;
 	import java.util.List;
+	import java.util.Map;
 
 	import akka.actor.typed.ActorRef;
 	import akka.actor.typed.Behavior;
@@ -17,11 +19,14 @@
 	import de.ddm.serialization.AkkaSerializable;
 	import de.ddm.singletons.InputConfigurationSingleton;
 	import de.ddm.singletons.SystemConfigurationSingleton;
+	import de.ddm.structures.ColumnIdentifier;
 	import de.ddm.structures.InclusionDependency;
 	import lombok.AllArgsConstructor;
 	import lombok.Getter;
 	import lombok.NoArgsConstructor;
 	import lombok.Setter;
+
+
 
 		public class DependencyMiner extends AbstractBehavior<de.ddm.actors.profiling.DependencyMiner.Message> {
 
@@ -68,15 +73,7 @@
 				private ActorRef<LargeMessageProxy.Message> workerProxy;
 			}
 
-			@Getter
-			@NoArgsConstructor
-			@AllArgsConstructor
-			public static class ColumnAssignmentMessage implements Message {
-				private static final long serialVersionUID = 1L;
-				private List<de.ddm.structures.ColumnIdentifier> assignedColumns;
-				private int totalWorkers;
-				private int expectedFileCount; // How many files to expect
-			}
+			
 
 
 
@@ -122,16 +119,7 @@
 				}
 			}
 
-			@NoArgsConstructor
-			@AllArgsConstructor
-			@Getter
-			@Setter
-			public static class ColumnCacheUpdate implements Message {
-				private static final long serialVersionUID = 1L;
-				private int fileId;
-				private int columnIndex;
-				private java.util.Set<String> values;
-			}
+			
 
 			
 
@@ -207,13 +195,11 @@
 
 			private int inFlightTasks = 0;
 
-			// Data centralization: Master stores all column values for distribution
-			private final java.util.Map<String, java.util.Set<String>> masterColumnCache = new java.util.HashMap<>();
+			// Column partitioning state
+			private final Map<ColumnIdentifier, ActorRef<DependencyWorker.Message>> columnOwnership = new HashMap<>();
+			private int workerCounter = 0; // For round-robin column assignment
+			private int filesReadComplete = 0; // Track how many files finished reading
 
-			// Progress tracking for data loading phase
-			private int totalColumnsToLoad = 0;
-			private int loadedColumnsCount = 0;
-			private boolean allColumnsLoaded = false;
 
 
 			////////////////////
@@ -228,11 +214,9 @@
 						.onMessage(de.ddm.actors.profiling.DependencyMiner.HeaderMessage.class, this::handle)
 						.onMessage(de.ddm.actors.profiling.DependencyMiner.RegistrationMessage.class, this::handle)
 						.onMessage(de.ddm.actors.profiling.DependencyMiner.WorkRequest.class, this::handle)
-	//				.onMessage(CompletionMessage.class, this::handle)
+	
 						.onMessage(de.ddm.actors.profiling.DependencyMiner.UnaryIndResult.class, this::handle)
-						.onMessage(DependencyMiner.ColumnCacheUpdate.class, this::handle)
-
-
+						
 						.onSignal(Terminated.class, this::handle)
 						.build();
 			}
@@ -302,11 +286,7 @@
 
 				getContext().getLog().info("Total unary IND tasks: {}", totalTasks);
             
-				// Calculate expected columns
-				for (int f = 0; f < inputFiles.length; f++) {
-					totalColumnsToLoad += headerLines[f].length;
-				}
-				getContext().getLog().info("Expecting {} columns total", totalColumnsToLoad);
+				getContext().getLog().info("All headers loaded, {} files total", inputFiles.length);
 			}
 
 			return this;
@@ -330,9 +310,18 @@
 				this.getContext().watch(dependencyWorker);
 				
 				// ✅ If data already loaded, send cache to new worker
-				if (allColumnsLoaded) {
-					sendCacheToWorker(workerProxy);  // ✅ Pass proxy!
-				}
+				// Assign columns to this new worker
+				List<ColumnIdentifier> assignedColumns = assignColumnsToWorker();
+
+				// Send assignment to worker
+				dependencyWorker.tell(new DependencyWorker.ColumnAssignmentMessage(
+				assignedColumns, 
+				this.dependencyWorkers.size(),
+				this.inputFiles.length  // expectedFileCount
+				));
+
+				getContext().getLog().info("Assigned {} columns to worker {}", 
+					assignedColumns.size(), this.dependencyWorkers.size());
 			}
 			return this;
 		}
@@ -352,7 +341,7 @@
 		}
 
 		private Behavior<Message> handle(WorkRequest message) {
-			if (headerLines[0] == null || noMoreTasks || !allColumnsLoaded) return this;
+			if (headerLines[0] == null || noMoreTasks) return this;
 
 			while (nextDependentFile == nextReferencedFile &&
 					nextDependentColumn == nextReferencedColumn) {
@@ -386,29 +375,27 @@
 			return this;
 		}
 
+		private Behavior<Message> handle(UnaryIndResult message) {
+			resultsReceived++;
+			inFlightTasks--;
 
-			private Behavior<Message> handle(UnaryIndResult message) {
-
-				resultsReceived++;
-				inFlightTasks--;
-
-
-				if (!message.isViolated()) {
+			if (!message.isViolated()) {
 				InclusionDependency ind = new InclusionDependency(
-						inputFiles[message.getDependentFileId()],
-						new String[]{headerLines[message.getDependentFileId()][message.getDependentColumnIndex()]},
-						inputFiles[message.getReferencedFileId()],
-						new String[]{headerLines[message.getReferencedFileId()][message.getReferencedColumnIndex()]}
+					inputFiles[message.getDependentFileId()],
+					new String[]{headerLines[message.getDependentFileId()][message.getDependentColumnIndex()]},
+					inputFiles[message.getReferencedFileId()],
+					new String[]{headerLines[message.getReferencedFileId()][message.getReferencedColumnIndex()]}
 				);
 
 				this.resultCollector.tell(
-						new ResultCollector.ResultMessage(List.of(ind))
+					new ResultCollector.ResultMessage(List.of(ind))
 				);
 			}
+			
 			if (noMoreTasks && inFlightTasks == 0) {
 				getContext().getLog().info(
-						"All unary INDs processed ({} tasks). Terminating.",
-						totalTasks
+					"All unary INDs processed ({} tasks). Terminating.",
+					totalTasks
 				);
 				end();
 			}
@@ -416,52 +403,31 @@
 			return this;
 		}
 
-		private Behavior<Message> handle(ColumnCacheUpdate message) {
-			String key = message.getFileId() + ":" + message.getColumnIndex();
-			masterColumnCache.put(key, message.getValues());
-			loadedColumnsCount++;
+		private List<ColumnIdentifier> assignColumnsToWorker() {
+			List<ColumnIdentifier> assigned = new ArrayList<>();
 			
-			getContext().getLog().info("Stored column data for file {} col {} ({} values) - {}/{} columns loaded",
-				message.getFileId(), message.getColumnIndex(), message.getValues().size(),
-				loadedColumnsCount, totalColumnsToLoad);
+			// Wait for headers to be loaded
+			if (headerLines[0] == null) {
+				return assigned;
+			}
 			
-			// ✅ When all columns loaded, send cache to all workers!
-			if (!allColumnsLoaded && loadedColumnsCount == totalColumnsToLoad) {
-				allColumnsLoaded = true;
-				getContext().getLog().info("All column data loaded! Sending cache to {} workers", 
-					dependencyWorkers.size());
-				
-				for (int i = 0; i < dependencyWorkers.size(); i++) {
-					sendCacheToWorker(workerProxies.get(i));  // ✅ Use proxy!
+			int workerIndex = workerCounter++;
+			int numWorkers = Math.max(1, this.dependencyWorkers.size());
+			
+			// Round-robin: Worker N gets columns N, N+numWorkers, N+2*numWorkers, ...
+			for (int fileId = 0; fileId < inputFiles.length; fileId++) {
+				for (int colIdx = workerIndex; colIdx < headerLines[fileId].length; colIdx += numWorkers) {
+					ColumnIdentifier colId = new ColumnIdentifier(fileId, colIdx);
+					assigned.add(colId);
+					
+					// Track ownership
+					columnOwnership.put(colId, dependencyWorkers.get(dependencyWorkers.size() - 1));
 				}
 			}
 			
-			return this;
+			return assigned;
 		}
 
-		private void sendCacheToWorker(ActorRef<LargeMessageProxy.Message> workerProxy) {
-			getContext().getLog().info("Sending {} columns to worker", masterColumnCache.size());
-			
-			int messageCount = 0;
-			int totalMessages = masterColumnCache.size();
-			
-			for (java.util.Map.Entry<String, java.util.Set<String>> entry : masterColumnCache.entrySet()) {
-				String[] parts = entry.getKey().split(":");
-				int fileId = Integer.parseInt(parts[0]);
-				int colIndex = Integer.parseInt(parts[1]);
-				
-				DependencyWorker.ColumnCacheMessage cacheMsg = 
-					new DependencyWorker.ColumnCacheMessage(fileId, colIndex, entry.getValue(), totalMessages);
-				
-				// ✅ Send to WORKER'S proxy, not master's!
-				this.largeMessageProxy.tell(
-					new LargeMessageProxy.SendMessage(cacheMsg, workerProxy)
-				);
-				
-				messageCount++;
-			}
-			
-			getContext().getLog().info("Sent {} cache messages to worker", messageCount);
-		}
 
+			
 	}
