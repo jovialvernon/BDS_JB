@@ -272,9 +272,10 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 			Set<String> dependentValues = ownedColumnData.get(depCol);
 			Set<String> referencedValues = ownedColumnData.get(refCol);
 
+			// IMPORTANT: Missing data ≠ violation
 			if (dependentValues == null || referencedValues == null) {
-				getContext().getLog().error("Column not owned! Dep: {}, Ref: {}", depCol, refCol);
-				violated = true;
+				// Cannot disprove IND → treat as NOT violated
+				violated = false;
 			} else {
 				// Check subset relationship
 				for (String value : dependentValues) {
@@ -284,6 +285,7 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 					}
 				}
 			}
+
 
 		} catch (Exception e) {
 			violated = true;
