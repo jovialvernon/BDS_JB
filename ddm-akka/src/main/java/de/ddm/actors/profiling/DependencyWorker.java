@@ -322,54 +322,120 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		this.assignedColumns = message.getAssignedColumns();
 		this.expectedFileCount = message.getExpectedFileCount();
 		
+		getContext().getLog().info("✅ ColumnAssignmentMessage received: assignedColumns={}, expectedFileCount={}", 
+			assignedColumns.size(), expectedFileCount);
+		
 		// Initialize data structures for owned columns
 		for (ColumnIdentifier colId : assignedColumns) {
 			ownedColumnData.put(colId, new HashSet<>());
 		}
 		
-		getContext().getLog().info("Worker assigned {} columns from {} files", 
-			assignedColumns.size(), expectedFileCount);
-		return this;
-	}
-
-	private Behavior<Message> handle(DependencyMiner.BatchMessage message) {
-		if (assignedColumns.isEmpty()) {
-			return this; // Ignore batches until we know our columns
+		// LOG WHICH FILES WE HAVE COLUMNS FROM
+		Set<Integer> filesWithColumns = new HashSet<>();
+		for (ColumnIdentifier colId : assignedColumns) {
+			filesWithColumns.add(colId.getFileId());
 		}
 		
-		int fileId = message.getId();
-		List<String[]> batch = message.getBatch();
+		getContext().getLog().info("Worker assigned {} columns from {} files. Files with assigned columns: {}", 
+			assignedColumns.size(), expectedFileCount, filesWithColumns);
 		
-		if (batch.isEmpty()) {
-			// File reading complete
-			completedFiles.add(fileId);
-			getContext().getLog().info("File {} complete, {} of {} files done", 
-				fileId, completedFiles.size(), expectedFileCount);
+		// ✅ CRITICAL: Check if files already completed before assignment arrived
+		getContext().getLog().info("Current completedFiles at assignment: {} (size={})", 
+			completedFiles, completedFiles.size());
+		
+		if (completedFiles.size() > 0) {
+			getContext().getLog().info("⚠️  Found {} files already completed before assignment: {}", 
+				completedFiles.size(), completedFiles);
 			
-			// Check if all files done
-			if (expectedFileCount > 0 && completedFiles.size() == expectedFileCount) {
+			// Check if all files are done
+			if (completedFiles.size() == expectedFileCount) {
 				dataLoadingComplete = true;
-				getContext().getLog().info("All data loaded! Requesting work...");
+				getContext().getLog().info("🎉 All data already loaded! Requesting work...");
 				
-				// Request work from master
 				if (minerRef != null) {
 					minerRef.tell(new DependencyMiner.WorkRequest(
 						getContext().getSelf(),
 						this.largeMessageProxy
 					));
+				} else {
+					getContext().getLog().error("❌ Cannot request work - minerRef is null!");
 				}
+			} else {
+				getContext().getLog().info("Partial completion: {}/{} files done", 
+					completedFiles.size(), expectedFileCount);
 			}
+		} else {
+			getContext().getLog().info("No files completed yet at assignment time - will track as they arrive");
+		}
+		
+		return this;
+	}
+
+	private Behavior<Message> handle(DependencyMiner.BatchMessage message) {
+		int fileId = message.getId();
+		List<String[]> batch = message.getBatch();
+		
+		getContext().getLog().debug("Received batch from file {}: {} rows, isEmpty={}", 
+			fileId, batch.size(), batch.isEmpty());
+		
+		// Track empty batches (file completion)
+		if (batch.isEmpty()) {
+			// Check if already marked complete (avoid duplicates)
+			if (completedFiles.contains(fileId)) {
+				getContext().getLog().warn("File {} sent completion signal again (duplicate)", fileId);
+				return this;
+			}
+			
+			completedFiles.add(fileId);
+			
+			// Log completion based on whether we know expectedFileCount
+			if (expectedFileCount > 0) {
+				getContext().getLog().info("✅ File {} complete, {} of {} files done. Completed: {}", 
+					fileId, completedFiles.size(), expectedFileCount, completedFiles);
+				
+				// Check if all files done
+				if (completedFiles.size() == expectedFileCount) {
+					dataLoadingComplete = true;
+					getContext().getLog().info("🎉 All data loaded ({}/{} files)! Requesting work...", 
+						completedFiles.size(), expectedFileCount);
+					
+					if (minerRef != null) {
+						minerRef.tell(new DependencyMiner.WorkRequest(
+							getContext().getSelf(),
+							this.largeMessageProxy
+						));
+					} else {
+						getContext().getLog().error("❌ Cannot request work - minerRef is null!");
+					}
+				}
+			} else {
+				// expectedFileCount not set yet - file completed before assignment
+				getContext().getLog().info("⚠️  File {} marked complete (total: {}), but expectedFileCount not set yet (waiting for ColumnAssignmentMessage)", 
+					fileId, completedFiles.size());
+			}
+			
+			return this;
+		}
+		
+		// For data batches, need column assignments to process
+		if (assignedColumns.isEmpty()) {
+			getContext().getLog().debug("Ignoring data batch from file {} - no columns assigned yet", fileId);
 			return this;
 		}
 		
 		// Process batch - extract our columns only
+		int processedRows = 0;
 		for (String[] row : batch) {
 			for (ColumnIdentifier colId : assignedColumns) {
 				if (colId.getFileId() == fileId && colId.getColumnIndex() < row.length) {
 					ownedColumnData.get(colId).add(row[colId.getColumnIndex()]);
+					processedRows++;
 				}
 			}
 		}
+		
+		getContext().getLog().debug("Processed {} data rows from file {} for owned columns", 
+			processedRows, fileId);
 		
 		return this;
 	}

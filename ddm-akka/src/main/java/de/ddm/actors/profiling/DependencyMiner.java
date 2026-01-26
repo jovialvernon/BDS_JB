@@ -3,8 +3,10 @@
 	import java.io.File;
 	import java.util.ArrayList;
 	import java.util.HashMap;
+	import java.util.HashSet;
 	import java.util.List;
 	import java.util.Map;
+	import java.util.Set;
 
 	import akka.actor.typed.ActorRef;
 	import akka.actor.typed.Behavior;
@@ -198,6 +200,9 @@
 			private int workerCounter = 0; // For round-robin column assignment
 			private int filesReadComplete = 0; // Track how many files finished reading
 
+			// Track which files have finished reading (for late-joining workers)
+			private final Set<Integer> completedFiles = new HashSet<>();
+
 
 
 			////////////////////
@@ -288,13 +293,26 @@
 			}
 
 			return this;
-	}
+		}
 
 		private Behavior<Message> handle(BatchMessage message) {
+			// Record EOF (empty batch)
+			if (message.getBatch().isEmpty()) {
+				completedFiles.add(message.getId());
+				getContext().getLog().info("File {} finished reading (EOF recorded)", message.getId());
+			}
 			
-
-			if (!message.getBatch().isEmpty())
-				this.inputReaders.get(message.getId()).tell(new InputReader.ReadBatchMessage(this.getContext().getSelf(), 10000));
+			// Forward batch to ALL workers
+			for (ActorRef<DependencyWorker.Message> worker : dependencyWorkers) {
+				worker.tell(message);
+			}
+			
+			if (!message.getBatch().isEmpty()) {
+				this.inputReaders.get(message.getId()).tell(
+					new InputReader.ReadBatchMessage(this.getContext().getSelf(), 10000)
+				);
+			}
+			
 			return this;
 		}
 
@@ -320,6 +338,16 @@
 
 				getContext().getLog().info("Assigned {} columns to worker {}", 
 					assignedColumns.size(), this.dependencyWorkers.size());
+
+				// Replay any EOFs that arrived before this worker registered
+				for (int fileId : completedFiles) {
+					dependencyWorker.tell(new BatchMessage(fileId, List.of()));
+				}
+
+				if (!completedFiles.isEmpty()) {
+					getContext().getLog().info("Replayed {} EOF signals to new worker", 
+						completedFiles.size());
+				}
 			}
 			return this;
 		}
