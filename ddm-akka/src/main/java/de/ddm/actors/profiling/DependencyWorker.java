@@ -2,6 +2,7 @@ package de.ddm.actors.profiling;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -15,10 +16,10 @@ import akka.actor.typed.javadsl.Receive;
 import akka.actor.typed.receptionist.Receptionist;
 import de.ddm.actors.patterns.LargeMessageProxy;
 import de.ddm.serialization.AkkaSerializable;
+import de.ddm.structures.ColumnIdentifier;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-
 
 public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message> {
 
@@ -174,33 +175,7 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		private String requestId; // Match with request
 	}
 
-	public static class ColumnCacheMessage implements Message, LargeMessageProxy.LargeMessage {
-		private static final long serialVersionUID = 1L;
-		
-		private int fileId;
-		private int columnIndex;
-		private Set<String> values;
-		private int totalMessages;
-
-		public ColumnCacheMessage() {}
-
-		public ColumnCacheMessage(int fileId, int columnIndex, Set<String> values, int totalMessages) {
-			this.fileId = fileId;
-			this.columnIndex = columnIndex;
-			this.values = values;
-			this.totalMessages = totalMessages;
-		}
-
-		public int getFileId() { return fileId; }
-		public int getColumnIndex() { return columnIndex; }
-		public Set<String> getValues() { return values; }
-		public int getTotalMessages() { return totalMessages; }
-		
-		public void setFileId(int fileId) { this.fileId = fileId; }
-		public void setColumnIndex(int columnIndex) { this.columnIndex = columnIndex; }
-		public void setValues(Set<String> values) { this.values = values; }
-		public void setTotalMessages(int totalMessages) { this.totalMessages = totalMessages; }
-	}
+	
 
 	////////////////////////
 	// Actor Construction //
@@ -230,13 +205,14 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 	private ActorRef<DependencyMiner.Message> minerRef;
 
 
-	private Map<String, Set<String>> workerColumnCache = new HashMap<>();
-	private boolean cacheInitialized = false;
-	private int expectedCacheMessages = 0;
-	private int receivedCacheMessages = 0;
-
+	// Column ownership (NEW approach)
 	private List<de.ddm.structures.ColumnIdentifier> assignedColumns = new ArrayList<>();
+	private Map<de.ddm.structures.ColumnIdentifier, Set<String>> ownedColumnData = new HashMap<>();
+
+	// Track data loading progress
 	private int expectedFileCount = 0;
+	private Set<Integer> completedFiles = new HashSet<>();
+	private boolean dataLoadingComplete = false;
 
 	
 
@@ -248,9 +224,9 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 	public Receive<Message> createReceive() {
 		return newReceiveBuilder()
 				.onMessage(ReceptionistListingMessage.class, this::handle)
-				.onMessage(ColumnCacheMessage.class, this::handleColumnCache)
-				.onMessage(TaskMessage.class, this::handle)
 				.onMessage(ColumnAssignmentMessage.class, this::handle)
+				.onMessage(DependencyMiner.BatchMessage.class, this::handle)
+				.onMessage(TaskMessage.class, this::handle)
 				.build();
 	}
 
@@ -272,67 +248,32 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		return this;
 	}
 
-	private Behavior<Message> handleColumnCache(ColumnCacheMessage message) {
-	// Initialize expected count on first message
-		if (expectedCacheMessages == 0) {
-			expectedCacheMessages = message.getTotalMessages();
-			getContext().getLog().info("Worker expecting {} cache messages", expectedCacheMessages);
-		}
-		
-		// Store column data in cache
-		String key = message.getFileId() + ":" + message.getColumnIndex();
-		workerColumnCache.put(key, message.getValues());
-		receivedCacheMessages++;
-		
-		getContext().getLog().info("Cached column {}/{} (file {} col {}, {} values)",
-			receivedCacheMessages, expectedCacheMessages,
-			message.getFileId(), message.getColumnIndex(), message.getValues().size());
-		
-		// Check if cache is fully loaded
-		if (receivedCacheMessages == expectedCacheMessages) {
-			cacheInitialized = true;
-			getContext().getLog().info("Worker cache fully initialized! Ready for tasks.");
-
-			// ✅ Request work ONCE, after cache is ready
-			if (minerRef != null) {
-				minerRef.tell(new DependencyMiner.WorkRequest(
-					getContext().getSelf(),
-					this.largeMessageProxy
-				));
-			} else {
-				getContext().getLog().error("Miner reference not set!");
-			}
-		}
-
-
-		
-		return this;
-	}
+	
 
 	private Behavior<Message> handle(TaskMessage message) {  
-		// Check if cache is ready
-		if (!cacheInitialized) {
-			getContext().getLog().warn("Task received but cache not ready yet!");
-			// Request work again after cache is ready
-			// message.getMiner().tell(new DependencyMiner.WorkRequest(
-			// 	getContext().getSelf(),
-			// 	this.largeMessageProxy
-			// ));
+		// Check if data is ready
+		if (!dataLoadingComplete) {
+			getContext().getLog().warn("Task received but data not loaded yet!");
 			return this;
 		}
 
 		boolean violated = false;
 
 		try {
-			// ✅ READ FROM CACHE instead of message!
-			String depKey = message.getDependentFileId() + ":" + message.getDependentColumnIndex();
-			String refKey = message.getReferencedFileId() + ":" + message.getReferencedColumnIndex();
+			ColumnIdentifier depCol = new ColumnIdentifier(
+				message.getDependentFileId(), 
+				message.getDependentColumnIndex()
+			);
+			ColumnIdentifier refCol = new ColumnIdentifier(
+				message.getReferencedFileId(), 
+				message.getReferencedColumnIndex()
+			);
 			
-			Set<String> dependentValues = workerColumnCache.get(depKey);
-			Set<String> referencedValues = workerColumnCache.get(refKey);
+			Set<String> dependentValues = ownedColumnData.get(depCol);
+			Set<String> referencedValues = ownedColumnData.get(refCol);
 
 			if (dependentValues == null || referencedValues == null) {
-				getContext().getLog().error("Cache miss! Keys: {} {}", depKey, refKey);
+				getContext().getLog().error("Column not owned! Dep: {}, Ref: {}", depCol, refCol);
 				violated = true;
 			} else {
 				// Check subset relationship
@@ -381,7 +322,55 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		this.assignedColumns = message.getAssignedColumns();
 		this.expectedFileCount = message.getExpectedFileCount();
 		
-		getContext().getLog().info("Worker assigned {} columns", assignedColumns.size());
+		// Initialize data structures for owned columns
+		for (ColumnIdentifier colId : assignedColumns) {
+			ownedColumnData.put(colId, new HashSet<>());
+		}
+		
+		getContext().getLog().info("Worker assigned {} columns from {} files", 
+			assignedColumns.size(), expectedFileCount);
+		return this;
+	}
+
+	private Behavior<Message> handle(DependencyMiner.BatchMessage message) {
+		if (assignedColumns.isEmpty()) {
+			return this; // Ignore batches until we know our columns
+		}
+		
+		int fileId = message.getId();
+		List<String[]> batch = message.getBatch();
+		
+		if (batch.isEmpty()) {
+			// File reading complete
+			completedFiles.add(fileId);
+			getContext().getLog().info("File {} complete, {} of {} files done", 
+				fileId, completedFiles.size(), expectedFileCount);
+			
+			// Check if all files done
+			if (expectedFileCount > 0 && completedFiles.size() == expectedFileCount) {
+				dataLoadingComplete = true;
+				getContext().getLog().info("All data loaded! Requesting work...");
+				
+				// Request work from master
+				if (minerRef != null) {
+					minerRef.tell(new DependencyMiner.WorkRequest(
+						getContext().getSelf(),
+						this.largeMessageProxy
+					));
+				}
+			}
+			return this;
+		}
+		
+		// Process batch - extract our columns only
+		for (String[] row : batch) {
+			for (ColumnIdentifier colId : assignedColumns) {
+				if (colId.getFileId() == fileId && colId.getColumnIndex() < row.length) {
+					ownedColumnData.get(colId).add(row[colId.getColumnIndex()]);
+				}
+			}
+		}
+		
 		return this;
 	}
 }

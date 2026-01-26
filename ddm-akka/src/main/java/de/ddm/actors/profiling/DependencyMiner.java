@@ -27,7 +27,6 @@
 	import lombok.Setter;
 
 
-
 		public class DependencyMiner extends AbstractBehavior<de.ddm.actors.profiling.DependencyMiner.Message> {
 
 			////////////////////
@@ -57,9 +56,8 @@
 			@NoArgsConstructor
 			@AllArgsConstructor
 			@Getter
-			public static class BatchMessage implements DependencyMiner.Message {
+			public static class BatchMessage implements DependencyMiner.Message, DependencyWorker.Message {
 				private static final long serialVersionUID = 4591192372652568030L;
-
 				int id;
 				List<String[]> batch;
 			}
