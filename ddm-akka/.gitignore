@@ -47,3 +47,5 @@ results.txt
 original
 solution
 .DS_Store
+.DS_Store
+*.zip

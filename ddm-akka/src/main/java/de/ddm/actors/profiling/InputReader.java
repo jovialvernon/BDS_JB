@@ -34,23 +34,16 @@ public class InputReader extends AbstractBehavior<InputReader.Message> {
 	@AllArgsConstructor
 	@Getter
 	public static class ReadHeaderMessage implements Message {
-
 		private ActorRef<DependencyMiner.Message> replyTo;
 	}
-
-
 
 	@NoArgsConstructor
 	@AllArgsConstructor
 	@Getter
 	public static class ReadBatchMessage implements Message {
-
 		private ActorRef<DependencyMiner.Message> replyTo;
 		private int batchSize;
 	}
-
-
-
 
 	////////////////////////
 	// Actor Construction //
@@ -62,7 +55,8 @@ public class InputReader extends AbstractBehavior<InputReader.Message> {
 		return Behaviors.setup(context -> new InputReader(context, id, inputFile));
 	}
 
-	private InputReader(ActorContext<Message> context, final int id, final File inputFile) throws IOException, CsvValidationException {
+	private InputReader(ActorContext<Message> context, final int id, final File inputFile) 
+			throws IOException, CsvValidationException {
 		super(context);
 		this.id = id;
 		this.reader = InputConfigurationSingleton.get().createCSVReader(inputFile);
@@ -93,9 +87,9 @@ public class InputReader extends AbstractBehavior<InputReader.Message> {
 				.build();
 	}
 
-
 	private Behavior<Message> handle(ReadBatchMessage message) throws IOException, CsvValidationException {
 		List<String[]> batch = new ArrayList<>(message.getBatchSize());
+		
 		for (int i = 0; i < message.getBatchSize(); i++) {
 			String[] line = this.reader.readNext();
 			if (line == null)
@@ -113,14 +107,7 @@ public class InputReader extends AbstractBehavior<InputReader.Message> {
 	}
 
 	private Behavior<Message> handle(ReadHeaderMessage message) {
-		// Only send header - no data loading
 		message.getReplyTo().tell(new DependencyMiner.HeaderMessage(this.id, this.header));
 		return this;
 	}
-
-	
-
-
-
-	
 }

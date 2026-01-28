@@ -49,10 +49,8 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		private int dependentColumnIndex;
 		private int referencedFileId;
 		private int referencedColumnIndex;
-
 		private ActorRef<DependencyMiner.Message> miner;
 		private ActorRef<LargeMessageProxy.Message> dependencyMinerLargeMessageProxy;
-
 		private java.util.Set<String> dependentValues;
 		private java.util.Set<String> referencedValues;
 
@@ -110,7 +108,6 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 			return referencedValues;
 		}
 
-		// Setters for Jackson deserialization
 		public void setDependentFileId(int value) {
 			this.dependentFileId = value;
 		}
@@ -154,29 +151,6 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		private int expectedFileCount;
 	}
 
-	@Getter
-	@NoArgsConstructor
-	@AllArgsConstructor
-	public static class ColumnDataRequest implements Message, LargeMessageProxy.LargeMessage {
-		private static final long serialVersionUID = 1L;
-		private de.ddm.structures.ColumnIdentifier columnId;
-		private ActorRef<DependencyWorker.Message> requester;
-		private ActorRef<LargeMessageProxy.Message> requesterProxy;
-		private String requestId; // To track which IND check this is for
-	}
-
-	@Getter
-	@NoArgsConstructor
-	@AllArgsConstructor  
-	public static class ColumnDataResponse implements Message, LargeMessageProxy.LargeMessage {
-		private static final long serialVersionUID = 1L;
-		private de.ddm.structures.ColumnIdentifier columnId;
-		private Set<String> values;
-		private String requestId; // Match with request
-	}
-
-	
-
 	////////////////////////
 	// Actor Construction //
 	////////////////////////
@@ -190,10 +164,14 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 	private DependencyWorker(ActorContext<Message> context) {
 		super(context);
 
-		final ActorRef<Receptionist.Listing> listingResponseAdapter = context.messageAdapter(Receptionist.Listing.class, ReceptionistListingMessage::new);
-		context.getSystem().receptionist().tell(Receptionist.subscribe(DependencyMiner.dependencyMinerService, listingResponseAdapter));
+		final ActorRef<Receptionist.Listing> listingResponseAdapter = 
+			context.messageAdapter(Receptionist.Listing.class, ReceptionistListingMessage::new);
+		context.getSystem().receptionist().tell(
+			Receptionist.subscribe(DependencyMiner.dependencyMinerService, listingResponseAdapter));
 
-		this.largeMessageProxy = this.getContext().spawn(LargeMessageProxy.create(this.getContext().getSelf().unsafeUpcast(), false), LargeMessageProxy.DEFAULT_NAME);
+		this.largeMessageProxy = this.getContext().spawn(
+			LargeMessageProxy.create(this.getContext().getSelf().unsafeUpcast(), false), 
+			LargeMessageProxy.DEFAULT_NAME);
 	}
 
 	/////////////////
@@ -201,20 +179,15 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 	/////////////////
 
 	private ActorRef<LargeMessageProxy.Message> largeMessageProxy;
-
 	private ActorRef<DependencyMiner.Message> minerRef;
 
-
-	// Column ownership (NEW approach)
+	// Workers store only their assigned columns (vertical partitioning)
 	private List<de.ddm.structures.ColumnIdentifier> assignedColumns = new ArrayList<>();
-	private Map<de.ddm.structures.ColumnIdentifier, Set<String>> ownedColumnData = new HashMap<>();
+	private Map<ColumnIdentifier, Set<String>> ownedColumnData = new HashMap<>();
 
-	// Track data loading progress
 	private int expectedFileCount = 0;
 	private Set<Integer> completedFiles = new HashSet<>();
 	private boolean dataLoadingComplete = false;
-
-	
 
 	////////////////////
 	// Actor Behavior //
@@ -231,90 +204,68 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 	}
 
 	private Behavior<Message> handle(ReceptionistListingMessage message) {
-		Set<ActorRef<DependencyMiner.Message>> dependencyMiners = message.getListing().getServiceInstances(DependencyMiner.dependencyMinerService);
+		Set<ActorRef<DependencyMiner.Message>> dependencyMiners = 
+			message.getListing().getServiceInstances(DependencyMiner.dependencyMinerService);
+		
 		for (ActorRef<DependencyMiner.Message> dependencyMiner : dependencyMiners) {
-
-			this.minerRef = dependencyMiner; 
-
+			this.minerRef = dependencyMiner;
 			dependencyMiner.tell(new DependencyMiner.RegistrationMessage(
 				this.getContext().getSelf(),
-				this.largeMessageProxy  // ✅ Send our proxy!
+				this.largeMessageProxy
 			));
-			// dependencyMiner.tell(new DependencyMiner.WorkRequest(
-			// 	this.getContext().getSelf(),
-			// 	this.largeMessageProxy  // Send our proxy reference!
-			// ));
-}
+		}
 		return this;
 	}
 
-	
-
 	private Behavior<Message> handle(TaskMessage message) {  
-		// Check if data is ready
 		if (!dataLoadingComplete) {
 			getContext().getLog().warn("Task received but data not loaded yet!");
 			return this;
 		}
 
-		boolean violated = false;
+		ColumnIdentifier depCol = new ColumnIdentifier(
+			message.getDependentFileId(),
+			message.getDependentColumnIndex()
+		);
+		ColumnIdentifier refCol = new ColumnIdentifier(
+			message.getReferencedFileId(),
+			message.getReferencedColumnIndex()
+		);
+		
+		Set<String> depValues = ownedColumnData.get(depCol);
+		Set<String> refValues = ownedColumnData.get(refCol);
 
-		try {
-			ColumnIdentifier depCol = new ColumnIdentifier(
-				message.getDependentFileId(), 
-				message.getDependentColumnIndex()
-			);
-			ColumnIdentifier refCol = new ColumnIdentifier(
-				message.getReferencedFileId(), 
-				message.getReferencedColumnIndex()
-			);
-			
-			Set<String> dependentValues = ownedColumnData.get(depCol);
-			Set<String> referencedValues = ownedColumnData.get(refCol);
+		boolean violated;
 
-			// IMPORTANT: Missing data ≠ violation
-			if (dependentValues == null || referencedValues == null) {
-				// Cannot disprove IND → treat as NOT violated
-				violated = false;
-			} else {
-				// Check subset relationship
-				for (String value : dependentValues) {
-					if (!referencedValues.contains(value)) {
-						violated = true;
-						break;
-					}
-				}
-			}
-
-
-		} catch (Exception e) {
+		// Conservative validation: reject if we don't own both columns
+		// This preserves strict partitioning but may miss some valid INDs
+		if (depValues == null || refValues == null) {
 			violated = true;
-			getContext().getLog().error("Error checking IND: {}", e.getMessage());
 		}
-
-		DependencyMiner.UnaryIndResult result =
-			new DependencyMiner.UnaryIndResult(
-				message.getDependentFileId(),
-				message.getDependentColumnIndex(),
-				message.getReferencedFileId(),
-				message.getReferencedColumnIndex(),
-				violated
-			);
-
-		// Send result back via LargeMessageProxy
-		this.largeMessageProxy.tell(
-			new LargeMessageProxy.SendMessage(
-				result,
-				message.getDependencyMinerLargeMessageProxy()
-			)
+		else if (depValues.isEmpty()) {
+			violated = false;
+		}
+		else if (refValues.isEmpty()) {
+			violated = true;
+		}
+		else {
+			violated = !refValues.containsAll(depValues);
+		}
+		
+		DependencyMiner.UnaryIndResult result = new DependencyMiner.UnaryIndResult(
+			message.getDependentFileId(),
+			message.getDependentColumnIndex(),
+			message.getReferencedFileId(),
+			message.getReferencedColumnIndex(),
+			violated
 		);
 
-		// Request more work
+		this.largeMessageProxy.tell(
+			new LargeMessageProxy.SendMessage(result, message.getDependencyMinerLargeMessageProxy())
+		);
+
 		message.getMiner().tell(
-			new DependencyMiner.WorkRequest(
-				getContext().getSelf(),
-				this.largeMessageProxy
-			)
+			new DependencyMiner.WorkRequest(getContext().getSelf(), this.largeMessageProxy)
 		);
 
 		return this;
@@ -324,50 +275,37 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		this.assignedColumns = message.getAssignedColumns();
 		this.expectedFileCount = message.getExpectedFileCount();
 		
-		getContext().getLog().info("✅ ColumnAssignmentMessage received: assignedColumns={}, expectedFileCount={}", 
-			assignedColumns.size(), expectedFileCount);
-		
-		// Initialize data structures for owned columns
+		// Initialize storage for all assigned columns
 		for (ColumnIdentifier colId : assignedColumns) {
-			ownedColumnData.put(colId, new HashSet<>());
+			ownedColumnData.putIfAbsent(colId, new HashSet<>());
 		}
 		
-		// LOG WHICH FILES WE HAVE COLUMNS FROM
+		getContext().getLog().info("Assigned {} columns (partitioned storage, all initialized)", 
+			assignedColumns.size());
+		
 		Set<Integer> filesWithColumns = new HashSet<>();
 		for (ColumnIdentifier colId : assignedColumns) {
 			filesWithColumns.add(colId.getFileId());
 		}
 		
-		getContext().getLog().info("Worker assigned {} columns from {} files. Files with assigned columns: {}", 
-			assignedColumns.size(), expectedFileCount, filesWithColumns);
-		
-		// ✅ CRITICAL: Check if files already completed before assignment arrived
-		getContext().getLog().info("Current completedFiles at assignment: {} (size={})", 
-			completedFiles, completedFiles.size());
+		getContext().getLog().info("Worker owns columns from {} files: {}", 
+			filesWithColumns.size(), filesWithColumns);
 		
 		if (completedFiles.size() > 0) {
-			getContext().getLog().info("⚠️  Found {} files already completed before assignment: {}", 
-				completedFiles.size(), completedFiles);
+			getContext().getLog().info("Found {} files already completed", completedFiles.size());
 			
-			// Check if all files are done
 			if (completedFiles.size() == expectedFileCount) {
 				dataLoadingComplete = true;
-				getContext().getLog().info("🎉 All data already loaded! Requesting work...");
+				getContext().getLog().info("All data loaded! {} columns owned. Requesting work...",
+					ownedColumnData.size());
 				
 				if (minerRef != null) {
 					minerRef.tell(new DependencyMiner.WorkRequest(
 						getContext().getSelf(),
 						this.largeMessageProxy
 					));
-				} else {
-					getContext().getLog().error("❌ Cannot request work - minerRef is null!");
 				}
-			} else {
-				getContext().getLog().info("Partial completion: {}/{} files done", 
-					completedFiles.size(), expectedFileCount);
 			}
-		} else {
-			getContext().getLog().info("No files completed yet at assignment time - will track as they arrive");
 		}
 		
 		return this;
@@ -377,67 +315,53 @@ public class DependencyWorker extends AbstractBehavior<DependencyWorker.Message>
 		int fileId = message.getId();
 		List<String[]> batch = message.getBatch();
 		
-		getContext().getLog().debug("Received batch from file {}: {} rows, isEmpty={}", 
-			fileId, batch.size(), batch.isEmpty());
-		
-		// Track empty batches (file completion)
 		if (batch.isEmpty()) {
-			// Check if already marked complete (avoid duplicates)
 			if (completedFiles.contains(fileId)) {
-				getContext().getLog().warn("File {} sent completion signal again (duplicate)", fileId);
 				return this;
 			}
 			
 			completedFiles.add(fileId);
 			
-			// Log completion based on whether we know expectedFileCount
 			if (expectedFileCount > 0) {
-				getContext().getLog().info("✅ File {} complete, {} of {} files done. Completed: {}", 
-					fileId, completedFiles.size(), expectedFileCount, completedFiles);
+				getContext().getLog().info("File {} complete, {}/{} files done", 
+					fileId, completedFiles.size(), expectedFileCount);
 				
-				// Check if all files done
 				if (completedFiles.size() == expectedFileCount) {
 					dataLoadingComplete = true;
-					getContext().getLog().info("🎉 All data loaded ({}/{} files)! Requesting work...", 
-						completedFiles.size(), expectedFileCount);
+					getContext().getLog().info("All data loaded! {} columns owned. Requesting work...",
+						ownedColumnData.size());
 					
 					if (minerRef != null) {
 						minerRef.tell(new DependencyMiner.WorkRequest(
 							getContext().getSelf(),
 							this.largeMessageProxy
 						));
-					} else {
-						getContext().getLog().error("❌ Cannot request work - minerRef is null!");
 					}
 				}
-			} else {
-				// expectedFileCount not set yet - file completed before assignment
-				getContext().getLog().info("⚠️  File {} marked complete (total: {}), but expectedFileCount not set yet (waiting for ColumnAssignmentMessage)", 
-					fileId, completedFiles.size());
 			}
 			
 			return this;
 		}
 		
-		// For data batches, need column assignments to process
 		if (assignedColumns.isEmpty()) {
-			getContext().getLog().debug("Ignoring data batch from file {} - no columns assigned yet", fileId);
 			return this;
 		}
 		
-		// Process batch - extract our columns only
-		int processedRows = 0;
+		// Extract and store only assigned columns from batch
 		for (String[] row : batch) {
 			for (ColumnIdentifier colId : assignedColumns) {
 				if (colId.getFileId() == fileId && colId.getColumnIndex() < row.length) {
-					ownedColumnData.get(colId).add(row[colId.getColumnIndex()]);
-					processedRows++;
+					String value = row[colId.getColumnIndex()];
+					
+					if (value != null) {
+						value = value.trim();
+						if (!value.isEmpty()) {
+							ownedColumnData.get(colId).add(value);
+						}
+					}
 				}
 			}
 		}
-		
-		getContext().getLog().debug("Processed {} data rows from file {} for owned columns", 
-			processedRows, fileId);
 		
 		return this;
 	}
